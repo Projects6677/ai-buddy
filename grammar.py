@@ -1,7 +1,7 @@
 import requests
 import os
 
-SAPLING_API_KEY = os.getenv("SAPLING_API_KEY") or "8N9ZGV0S82H2FVAS7GNFUB4JMZ8DV52J"
+SAPLING_API_KEY = os.getenv("8N9ZGV0S82H2FVAS7GNFUB4JMZ8DV52J") or "8N9ZGV0S82H2FVAS7GNFUB4JMZ8DV52J"
 
 def correct_grammar(text):
     url = "https://api.sapling.ai/api/v1/edits"
