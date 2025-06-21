@@ -1,5 +1,5 @@
 from flask import Flask, request
-from grammar import correct_grammar
+from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
 import requests
@@ -43,9 +43,8 @@ def webhook():
             response_text = schedule_reminder(user_text, sender_number)
 
         # 2. Check for grammar check
-        elif "check grammar:" in user_text.lower():
-            sentence = user_text.split(":", 1)[1]
-            response_text = correct_grammar(sentence.strip())
+       elif "check grammar:" in user_text.lower():
+    response_text = correct_grammar_with_grok(user_text[15:].strip())
 
         # 3. AI mode
         elif "ai:" in user_text.lower():
