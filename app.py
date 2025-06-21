@@ -53,7 +53,7 @@ def webhook():
 
         # 4. Default fallback
         else:
-            response_text = "Hey! I can:\n1️⃣ Remind you\n2️⃣ Fix grammar (use 'Check grammar:')\n3️⃣ Answer anything (use 'AI:')"
+            response_text = "Hey! I AM AI-Buddy:\n1️⃣ Remind you(Remind me to subject at time AM/PM)\n2️⃣ Fix grammar (use 'Check grammar:')\n3️⃣ Answer anything (use 'AI:')"
 
         # Send the response back
         send_message(sender_number, response_text)
