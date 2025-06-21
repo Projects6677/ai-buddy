@@ -44,7 +44,7 @@ def webhook():
 
         # 2. Check for grammar check
        elif "check grammar:" in user_text.lower():
-    response_text = correct_grammar_with_grok(user_text[15:].strip())
+            response_text = correct_grammar_with_grok(user_text[15:].strip())
 
         # 3. AI mode
         elif "ai:" in user_text.lower():
