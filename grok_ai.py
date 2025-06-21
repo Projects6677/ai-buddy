@@ -1,7 +1,7 @@
 import requests
 import os
 
-GROK_API_KEY = os.getenv("GROK_API_KEY") or "your_grok_key_here"
+GROK_API_KEY = os.getenv("GROK_API_KEY") or "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"
 
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
