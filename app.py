@@ -1,7 +1,7 @@
 from flask import Flask, request
 from grammar import correct_grammar
 from ai import ai_reply
-from scheduler import schedule_reminder
+from reminders import schedule_reminder
 import requests
 import os
 
