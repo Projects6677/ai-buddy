@@ -1,13 +1,42 @@
-import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+from dateutil import parser
+import pytz
+from app import send_message  # make sure send_message is not inside __main__
 
-# In a real version, you'd store and schedule this
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Store user reminders in memory (you can upgrade to DB/file later)
+reminders = []
+
 def schedule_reminder(msg, user):
-    # Example input: "Remind me to call mom at 5pm"
     try:
         parts = msg.lower().split("remind me to")[1].strip().split(" at ")
         task = parts[0]
-        time = parts[1]
-        # Simulate: In real version, store this and check periodically
-        return f"⏰ Reminder set!\nI'll remind you to *{task}* at *{time}*. (Simulated)"
-    except:
-        return "❌ Invalid format. Use: Remind me to [task] at [time]"
+        time_string = parts[1]
+
+        # Parse time and add today's date
+        now = datetime.now(pytz.timezone('Asia/Kolkata'))
+        run_time = parser.parse(time_string, default=now)
+
+        # Handle past times (assume next day)
+        if run_time < now:
+            run_time = run_time.replace(day=run_time.day + 1)
+
+        # Schedule the reminder
+        scheduler.add_job(
+            func=send_message,
+            trigger='date',
+            run_date=run_time,
+            args=[user, f"⏰ Reminder: {task}"],
+            id=f"{user}-{task}-{run_time.timestamp()}",
+            replace_existing=True
+        )
+
+        return f"✅ Reminder set for *{task}* at *{run_time.strftime('%I:%M %p')}*."
+
+    except Exception as e:
+        print("Reminder error:", e)
+        return "❌ Could not set reminder. Please use: Remind me to [task] at [time]"
+
