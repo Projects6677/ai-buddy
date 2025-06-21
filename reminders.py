@@ -2,7 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from dateutil import parser
 import pytz
-from app import send_message  # make sure send_message is not inside __main__
+from messaging import send_message  # make sure send_message is not inside __main__
 
 scheduler = BackgroundScheduler()
 scheduler.start()
