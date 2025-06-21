@@ -16,7 +16,7 @@ def correct_grammar(text):
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload)
+        response = requests.post(url, headers=headers, json=payload)  # ✅ correct
         result = response.json()
 
         if "edits" not in result or not result["edits"]:
