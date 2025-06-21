@@ -43,7 +43,7 @@ def webhook():
             response_text = schedule_reminder(user_text, sender_number)
 
         # 2. Check for grammar check
-       elif "check grammar:" in user_text.lower():
+        elif "check grammar:" in user_text.lower():
             response_text = correct_grammar_with_grok(user_text[15:].strip())
 
         # 3. AI mode
