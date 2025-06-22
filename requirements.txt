@@ -3,7 +3,7 @@ requests
 apscheduler
 python-dateutil
 pytz
-PyMuPDF
+pymuPDF
 fpdf
 python-docx
 werkzeug
