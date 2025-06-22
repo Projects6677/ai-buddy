@@ -1,34 +1,36 @@
-import replicate
-import uuid
+import openai
 import requests
+import uuid
 import os
 
-# 🗝️ Must be set in your Render environment
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-replicate.Client(api_token=REPLICATE_API_TOKEN)
+# 🔐 Set your OpenAI API key securely via environment variable on Render
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 def generate_image(prompt):
-    print("🎨 Prompt:", prompt)
+    print(f"🎨 Generating image with prompt: {prompt}")
+
     try:
-        output = replicate.run(
-            "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-            input={
-                "prompt": prompt,
-                "num_inference_steps": 20,
-                "guidance_scale": 7.5
-            }
+        response = openai.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
         )
 
-        if output and isinstance(output, list):
-            url = output[0]
-            print("🖼️ Image URL:", url)
+        image_url = response.data[0].url
+        print("📸 Image URL received:", image_url)
 
-            image_path = f"/tmp/{uuid.uuid4().hex}.png"
-            img_data = requests.get(url).content
-            with open(image_path, "wb") as f:
-                f.write(img_data)
-            return image_path
+        # Download image
+        image_data = requests.get(image_url).content
+        filename = f"/tmp/{uuid.uuid4().hex}.png"
+
+        with open(filename, "wb") as f:
+            f.write(image_data)
+
+        print("✅ Image saved to:", filename)
+        return filename
 
     except Exception as e:
-        print("❌ Replicate Error:", e)
-    return None
+        print("❌ Error generating image:", str(e))
+        return None
