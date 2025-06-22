@@ -1,41 +1,47 @@
 import requests
+import time
 import uuid
 import os
-import base64
 
-# ✅ Replace with your Stability API Key
-STABILITY_API_KEY = "sk-Yhob1F0R41BvumjmZnZEiHNzYTmMcodrBKssStYNSVDV2Xaea"
+REPLICATE_API_TOKEN = "r8_Q9HsRNKWQaRMnm2zTflnkJkujCyMzKB0hnQHe"
 
 def generate_image(prompt):
-    url = "https://api.stability.ai/v1/generation/stable-diffusion-512-v2-1/text-to-image"
     headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Content-Type": "application/json"
+        "Authorization": f"Token {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json",
     }
+
     payload = {
-        "text_prompts": [{"text": prompt}],
-        "cfg_scale": 7,
-        "height": 512,
-        "width": 512,
-        "samples": 1,
-        "steps": 30
+        "version": "db21e45f3703a403ca2724d3fd39c85e8f82d0a1ccf1185df1c3ff54d5c9e8ff",  # sdxl model
+        "input": {"prompt": prompt}
     }
 
-    print("🎨 Generating image for prompt:", prompt)
-    response = requests.post(url, headers=headers, json=payload)
+    # Step 1: Create prediction
+    response = requests.post("https://api.replicate.com/v1/predictions", json=payload, headers=headers)
+    if response.status_code != 201:
+        print("❌ Failed to start image generation:", response.text)
+        return None
 
-    if response.status_code == 200:
-        try:
-            base64_img = response.json()['artifacts'][0]['base64']
-            image_data = base64.b64decode(base64_img)
-            image_path = f"/tmp/{uuid.uuid4().hex}.png"
-            with open(image_path, "wb") as f:
-                f.write(image_data)
-            print("✅ Image saved to", image_path)
-            return image_path
-        except Exception as e:
-            print("⚠️ Error parsing image:", e)
-            return None
+    prediction = response.json()
+    prediction_id = prediction["id"]
+    status = prediction["status"]
+
+    # Step 2: Poll for completion
+    while status not in ["succeeded", "failed", "canceled"]:
+        time.sleep(1)
+        poll_response = requests.get(f"https://api.replicate.com/v1/predictions/{prediction_id}", headers=headers)
+        status = poll_response.json()["status"]
+
+    if status == "succeeded":
+        output_url = poll_response.json()["output"][0]
+        print("✅ Image generated:", output_url)
+
+        # Download the image
+        image_path = f"/tmp/{uuid.uuid4().hex}.png"
+        img_data = requests.get(output_url).content
+        with open(image_path, "wb") as f:
+            f.write(img_data)
+        return image_path
     else:
-        print("❌ Image generation failed:", response.status_code, response.text)
+        print("❌ Image generation failed:", status)
         return None
