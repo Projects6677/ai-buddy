@@ -4,7 +4,7 @@ import time
 import os
 
 # Hugging Face API key should be stored in environment variable
-HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN") or "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"
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
 def generate_image(prompt):
     if not HUGGINGFACE_TOKEN:
