@@ -1,49 +1,41 @@
 import requests
 import uuid
-import time
 import os
+import time
 
-# Hugging Face API key should be stored in environment variable
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
+MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
 
 def generate_image(prompt):
-    if not HUGGINGFACE_TOKEN:
-        print("❌ ERROR: Hugging Face API key not set in environment variable 'HUGGINGFACE_TOKEN'")
-        return None
-
-    url = "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
     headers = {
         "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
-        "Accept": "image/png",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "image/png"
     }
+
     payload = {
         "inputs": prompt
     }
 
-    print(f"🎨 Prompt: {prompt}")
-    print(f"📤 Sending request to Hugging Face endpoint: {url}")
+    print("🎨 Prompt:", prompt)
+    print("📤 Sending request to Hugging Face endpoint:", MODEL_URL)
 
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        print(f"🧾 Response status code: {response.status_code}")
+        response = requests.post(MODEL_URL, headers=headers, json=payload)
+        print("🧾 Response status code:", response.status_code)
 
-        # Handle cold start
         if response.status_code == 503:
-            print("⏳ Model is loading on Hugging Face... retrying in 10 seconds.")
+            print("⏳ Model is loading, waiting...")
             time.sleep(10)
-            response = requests.post(url, headers=headers, json=payload)
-            print(f"🧾 Retry response status code: {response.status_code}")
+            response = requests.post(MODEL_URL, headers=headers, json=payload)
 
-        # If success
         if response.status_code == 200:
-            image_path = f"/tmp/{uuid.uuid4().hex}.png"
-            with open(image_path, "wb") as f:
+            file_path = f"/tmp/{uuid.uuid4().hex}.png"
+            with open(file_path, "wb") as f:
                 f.write(response.content)
-            print(f"✅ Image saved to {image_path}")
-            return image_path
+            print("✅ Image saved at:", file_path)
+            return file_path
 
-        # Other errors
         print("❌ Generation failed.")
         print("📩 Response text:", response.text)
         return None
