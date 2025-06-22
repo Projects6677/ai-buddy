@@ -3,7 +3,7 @@ from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
-from imagegen import generate_image, image_generation_link
+from imagegen import generate_image
 import requests
 import os
 import uuid
