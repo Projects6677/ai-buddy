@@ -70,16 +70,16 @@ def webhook():
             elif state == "awaiting_conversion_choice":
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_pdf"
-                    response_text = "📅 Please upload a PDF file to convert to text."
+                    response_text = "📥 Please upload a PDF file to convert to text."
                 elif user_text == "2":
                     user_sessions[sender_number] = "awaiting_docx"
-                    response_text = "📅 Please upload a Word (.docx) file to convert to PDF."
+                    response_text = "📥 Please upload a Word (.docx) file to convert to PDF."
                 elif user_text == "3":
                     user_sessions[sender_number] = "awaiting_text"
                     response_text = "📝 Please send the text you want to convert into a PDF."
                 elif user_text == "4":
                     user_sessions[sender_number] = "awaiting_pdf_to_docx"
-                    response_text = "📅 Please upload the PDF to convert into Word."
+                    response_text = "📥 Please upload the PDF to convert into Word."
                 else:
                     response_text = "❓ Please send 1, 2, 3, 4 or 5 to select a conversion type."
 
@@ -91,11 +91,12 @@ def webhook():
 
             elif state == "awaiting_image_prompt":
                 image_url = generate_image_url(user_text)
+                print("🔍 Image URL:", image_url)
                 if image_url:
                     send_image_to_user(sender_number, image_url)
                     response_text = "✅ Generated image sent!"
                 else:
-                    response_text = "❌ Failed to generate image. Try again later."
+                    response_text = "❌ Failed to generate image. Check API key, balance, or prompt."
                 user_sessions.pop(sender_number, None)
 
             else:
