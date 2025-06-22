@@ -3,10 +3,8 @@ import uuid
 import os
 import time
 
-# 👇 Use Render Environment Variable for security
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
-
-MODEL_URL = "https://api-inference.huggingface.co/models/prompthero/openjourney"
+MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
 
 def generate_image(prompt):
     headers = {
@@ -15,10 +13,9 @@ def generate_image(prompt):
         "Accept": "image/png"
     }
 
-    styled_prompt = f"{prompt}, mdjrny-v4 style"
-    payload = { "inputs": styled_prompt }
+    payload = { "inputs": prompt }
 
-    print("🎨 Prompt:", styled_prompt)
+    print("🎨 Prompt:", prompt)
     print("📤 Sending request to:", MODEL_URL)
 
     try:
@@ -26,7 +23,7 @@ def generate_image(prompt):
         print("🧾 Status code:", response.status_code)
 
         if response.status_code == 503:
-            print("⏳ Model is loading. Retrying in 10s...")
+            print("⏳ Model loading, retrying in 10s...")
             time.sleep(10)
             response = requests.post(MODEL_URL, headers=headers, json=payload)
 
@@ -42,5 +39,5 @@ def generate_image(prompt):
         return None
 
     except Exception as e:
-        print("🔥 Error:", str(e))
+        print("🔥 Exception:", str(e))
         return None
