@@ -1,4 +1,4 @@
-# Full updated app.py with Option 5: Image Generation via Stability AI
+# Full updated app.py with Option 5: Image Generation via Stability AI (with main block)
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
@@ -14,8 +14,8 @@ from imagegen import generate_image
 app = Flask(__name__)
 
 VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "740671045777701"
-PHONE_NUMBER_ID = "EAAXPyMWrMskBO37ND9oRE1kNdlIQ8ZA2ZAr0RDdUZCYLAuoHpkkokNUfPR6k1ON6AyGu3RRTtHl2ESm6NKeXHMEPN9ujio5aqF2cGftQUFrYwG36zf9Y4xrxLBRp2mURKpUeoHMBZAZB5AZBweYQ0lHaCstALIZB3q05iRrgsZCC5GfTyPZAb4ZCrzgRm5OD2tJDr0gAZDZD"
+ACCESS_TOKEN = "EAAXPyMWrMskBO37ND9oRE1kNdlIQ8ZA2ZAr0RDdUZCYLAuoHpkkokNUfPR6k1ON6AyGu3RRTtHl2ESm6NKeXHMEPN9ujio5aqF2cGftQUFrYwG36zf9Y4xrxLBRp2mURKpUeoHMBZAZB5AZBweYQ0lHaCstALIZB3q05iRrgsZCC5GfTyPZAb4ZCrzgRm5OD2tJDr0gAZDZD"
+PHONE_NUMBER_ID = "740671045777701"
 
 user_sessions = {}
 
@@ -54,8 +54,11 @@ def webhook():
 
             if state == "awaiting_image_prompt":
                 img_path = generate_image(user_text)
-                send_file_to_user(sender_number, img_path, "image/png")
-                response_text = "🖼️ Your AI-generated image is ready!"
+                if img_path:
+                    send_file_to_user(sender_number, img_path, "image/png")
+                    response_text = "🖼️ Your AI-generated image is ready!"
+                else:
+                    response_text = "❌ Failed to generate image."
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_reminder":
@@ -130,5 +133,6 @@ def webhook():
 
     return "OK", 200
 
-# File conversion and other helper functions remain same below
-# ... (unchanged code omitted for brevity)
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
