@@ -11,7 +11,7 @@ def generate_image(prompt):
         print("❌ ERROR: Hugging Face API key not set in environment variable 'HUGGINGFACE_TOKEN'")
         return None
 
-    url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
+    url = "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
     headers = {
         "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
         "Accept": "image/png",
