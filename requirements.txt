@@ -7,4 +7,3 @@ PyMuPDF
 fpdf
 python-docx
 werkzeug
-openai
