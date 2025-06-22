@@ -1,4 +1,4 @@
-# Full updated app.py with fallback fix, image generation, and logging
+# Full updated app.py with Replicate image generation (no Hugging Face)
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
@@ -20,7 +20,7 @@ user_sessions = {}
 
 @app.route('/')
 def home():
-    return "WhatsApp AI Assistant with Conversions is Live!"
+    return "WhatsApp AI Assistant with Conversions and Replicate Image Generation is Live!"
 
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -39,13 +39,11 @@ def webhook():
     try:
         entry = data["entry"][0]["changes"][0]["value"]
 
-        # ✅ Ensure we process only messages, not status updates
         if "messages" not in entry or not entry["messages"]:
             return "No user message to process", 200
 
         message = entry["messages"][0]
         sender_number = message["from"]
-
         global user_sessions
         response_text = ""
 
@@ -136,7 +134,8 @@ def webhook():
 
     return "OK", 200
 
-# Send text response
+# Send message to user
+
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -151,35 +150,36 @@ def send_message(to, message):
     }
     requests.post(url, headers=headers, json=data)
 
-# Send file (image/pdf)
+# Send image or file to user
+
 def send_file_to_user(to, file_path, mime_type):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
-    }
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
     with open(file_path, "rb") as f:
         file_data = f.read()
 
     filename = os.path.basename(file_path)
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+
     media_upload = requests.post(
-        f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media",
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        url,
+        headers=headers,
         files={"file": (filename, file_data, mime_type)},
         data={"messaging_product": "whatsapp"}
     )
 
     media_id = media_upload.json().get("id")
     if media_id:
-        message_data = {
+        msg_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+        data = {
             "messaging_product": "whatsapp",
             "to": to,
-            "type": "document" if mime_type != "image/png" else "image",
-            "document" if mime_type != "image/png" else "image": {
+            "type": "image" if mime_type.startswith("image") else "document",
+            "image" if mime_type.startswith("image") else "document": {
                 "id": media_id,
                 "caption": "Here is your file."
             }
         }
-        requests.post(url, headers=headers, json=message_data)
+        requests.post(msg_url, headers=headers, json=data)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
