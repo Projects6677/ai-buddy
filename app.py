@@ -1,15 +1,14 @@
-# Full updated app.py with Option 5: Image Generation via Stability AI (with main block)
+# Full updated app.py with fallback fix, image generation, and logging
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
+from imagegen import generate_image
 import requests
 import os
 import uuid
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
-
-from imagegen import generate_image
 
 app = Flask(__name__)
 
@@ -39,8 +38,10 @@ def webhook():
 
     try:
         entry = data["entry"][0]["changes"][0]["value"]
-        if "messages" not in entry:
-            return "No message to handle", 200
+
+        # ✅ Ensure we process only messages, not status updates
+        if "messages" not in entry or not entry["messages"]:
+            return "No user message to process", 200
 
         message = entry["messages"][0]
         sender_number = message["from"]
@@ -128,10 +129,57 @@ def webhook():
                     )
 
         send_message(sender_number, response_text)
+        print("✅ Sent reply:", response_text)
+
     except Exception as e:
         print("❌ ERROR:", e)
 
     return "OK", 200
+
+# Send text response
+def send_message(to, message):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message}
+    }
+    requests.post(url, headers=headers, json=data)
+
+# Send file (image/pdf)
+def send_file_to_user(to, file_path, mime_type):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}"
+    }
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+
+    filename = os.path.basename(file_path)
+    media_upload = requests.post(
+        f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        files={"file": (filename, file_data, mime_type)},
+        data={"messaging_product": "whatsapp"}
+    )
+
+    media_id = media_upload.json().get("id")
+    if media_id:
+        message_data = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "document" if mime_type != "image/png" else "image",
+            "document" if mime_type != "image/png" else "image": {
+                "id": media_id,
+                "caption": "Here is your file."
+            }
+        }
+        requests.post(url, headers=headers, json=message_data)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
