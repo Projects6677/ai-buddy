@@ -3,8 +3,10 @@ import uuid
 import os
 import time
 
+# 👇 Use Render Environment Variable for security
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
-MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+
+MODEL_URL = "https://api-inference.huggingface.co/models/prompthero/openjourney"
 
 def generate_image(prompt):
     headers = {
@@ -13,33 +15,32 @@ def generate_image(prompt):
         "Accept": "image/png"
     }
 
-    payload = {
-        "inputs": prompt
-    }
+    styled_prompt = f"{prompt}, mdjrny-v4 style"
+    payload = { "inputs": styled_prompt }
 
-    print("🎨 Prompt:", prompt)
-    print("📤 Sending request to Hugging Face endpoint:", MODEL_URL)
+    print("🎨 Prompt:", styled_prompt)
+    print("📤 Sending request to:", MODEL_URL)
 
     try:
         response = requests.post(MODEL_URL, headers=headers, json=payload)
-        print("🧾 Response status code:", response.status_code)
+        print("🧾 Status code:", response.status_code)
 
         if response.status_code == 503:
-            print("⏳ Model is loading, waiting...")
+            print("⏳ Model is loading. Retrying in 10s...")
             time.sleep(10)
             response = requests.post(MODEL_URL, headers=headers, json=payload)
 
         if response.status_code == 200:
-            file_path = f"/tmp/{uuid.uuid4().hex}.png"
-            with open(file_path, "wb") as f:
+            image_path = f"/tmp/{uuid.uuid4().hex}.png"
+            with open(image_path, "wb") as f:
                 f.write(response.content)
-            print("✅ Image saved at:", file_path)
-            return file_path
+            print("✅ Image saved:", image_path)
+            return image_path
 
-        print("❌ Generation failed.")
-        print("📩 Response text:", response.text)
+        print("❌ Failed to generate image.")
+        print("📩 Response:", response.text)
         return None
 
     except Exception as e:
-        print("🔥 Exception occurred:", str(e))
+        print("🔥 Error:", str(e))
         return None
