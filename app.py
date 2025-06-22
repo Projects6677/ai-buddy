@@ -7,7 +7,9 @@ import os
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
-import docx2pdf
+from docx2pdf import convert
+import fitz  # pymupdf for pdf to text extraction
+import time
 
 app = Flask(__name__)
 
@@ -163,22 +165,14 @@ def send_file_to_user(to, file_path, mime_type):
         }
         requests.post(msg_url, headers=headers, json=data)
 
-def convert_text_to_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    lines = text.split('\n')
-    for line in lines:
-        pdf.multi_cell(0, 10, line)
-    path = f"/tmp/{secure_filename(text[:10])}.pdf"
-    pdf.output(path)
-    return path
-
 def convert_pdf_to_docx(pdf_path):
     docx_path = pdf_path.replace(".pdf", ".docx")
     try:
+        if not os.path.exists(pdf_path):
+            print("❌ PDF file does not exist:", pdf_path)
+            return None
         cv = Converter(pdf_path)
-        cv.convert(docx_path)
+        cv.convert(docx_path, start=0, end=None)
         cv.close()
         return docx_path
     except Exception as e:
@@ -188,11 +182,43 @@ def convert_pdf_to_docx(pdf_path):
 def convert_docx_to_pdf(docx_path):
     pdf_path = docx_path.replace(".docx", ".pdf")
     try:
-        docx2pdf.convert(docx_path, pdf_path)
-        return pdf_path
+        if not os.path.exists(docx_path):
+            print("❌ DOCX file does not exist:", docx_path)
+            return None
+        convert(docx_path, pdf_path)
+        if os.path.exists(pdf_path):
+            return pdf_path
+        else:
+            print("❌ PDF output not found after conversion.")
+            return None
     except Exception as e:
         print("❌ DOCX to PDF conversion error:", e)
         return None
+
+def convert_pdf_to_text(pdf_path):
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text
+    except Exception as e:
+        print("❌ PDF to text conversion error:", e)
+        return None
+
+def convert_text_to_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    lines = text.split('\n')
+    for line in lines:
+        pdf.multi_cell(0, 10, line)
+    safe_filename = secure_filename(text[:20]) or "converted"
+    path = os.path.join("/tmp", f"{safe_filename}.pdf")
+    pdf.output(path)
+    return path
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
