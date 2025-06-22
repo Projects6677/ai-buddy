@@ -1,39 +1,37 @@
-import openai
-import os
+# ✅ imagegen.py (using DeepAI)
 import requests
 import uuid
+import os
 
-# Get your OpenAI API key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
+DEEP_AI_API_KEY = "19ff8563-9efc-477a-b167-454481815fa5"
 
 def generate_image(prompt):
-    print(f"🎨 Generating image with prompt: {prompt}")
-    
+    print("\U0001F3A8 Prompt:", prompt)
     try:
-        response = openai.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
-            quality="standard",
-            response_format="url"
+        response = requests.post(
+            "https://api.deepai.org/api/text2img",
+            data={'text': prompt},
+            headers={'api-key': DEEP_AI_API_KEY}
         )
 
-        image_url = response.data[0].url
-        print(f"🌐 Image URL: {image_url}")
+        if response.status_code == 200:
+            image_url = response.json().get("output_url")
+            if not image_url:
+                print("❌ No image URL returned")
+                return None
 
-        # Download image
-        image_data = requests.get(image_url).content
-        file_path = f"/tmp/{uuid.uuid4().hex}.png"
-        with open(file_path, "wb") as f:
-            f.write(image_data)
+            print("✅ Image URL:", image_url)
+            # Download image
+            img_data = requests.get(image_url).content
+            file_path = f"/tmp/{uuid.uuid4().hex}.png"
+            with open(file_path, "wb") as f:
+                f.write(img_data)
+            return file_path
 
-        print(f"✅ Image saved to {file_path}")
-        return file_path
+        else:
+            print("❌ DeepAI Error:", response.status_code, response.text)
+            return None
 
-    except openai.OpenAIError as e:
-        print("❌ OpenAI Image Generation Error:", e)
     except Exception as e:
-        print("❌ Unexpected Error:", e)
-
-    return None
+        print("❌ Exception:", e)
+        return None
