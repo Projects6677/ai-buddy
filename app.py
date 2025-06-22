@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 
 VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "EAAJ0jnn2gyMBO7qaQPmalfFVqusr5zoZCuSwPy148FvvWzQA1CGhBgiPVJS4SHhNdAzAo9UHqHaQhHZCMPIB9BRzdIETq2grq2HwVBzrS3YbmRfYu3RUG3oQJ4ZCviyFhCK7q2IVhntst6ZAG6BGjGhsLZAVQLHXvSqxeWcNw9QwE0ZAgBnPF7tRtmqgj6BcfPxZA99LIrVz0gdwV7DJ4aXTPwLBzOSHr64v2CUPFmok8ZB3EQZDZD"
+ACCESS_TOKEN = "EAAJ0jnn2gyMBO0wSo7dZCIVnceSx0AapQ7IWvL1MOggG6jEXVR4pi7Gqtjbgvbi2AgWWvNb7fPs9TQCRgZA32a13OrARh0ZBZBNKrcQkv7ZBZAHHtU7ddINVue9M6WJHjbg0zZCj9M6lDPMvRrfyu6ZAsuzZByIioeGfvxRzMQ9BHlCT8c2B5gvh6cjIs4Go5vZAilbH5blsGeUZAlgWVdnC9dvsUNgBuJ7ODvrBMXzXZBGtnZALf28UZD"
 PHONE_NUMBER_ID = "698497970011796"
 
 # Store temporary user sessions
@@ -18,7 +18,7 @@ user_sessions = {}
 def home():
     return "WhatsApp AI Assistant is Live!"
 
-# Webhook verification
+# Webhook verification for Meta
 @app.route('/webhook', methods=['GET'])
 def verify():
     mode = request.args.get("hub.mode")
@@ -33,6 +33,8 @@ def verify():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
+    print("🚀 Received message:", data)  # Debug log to confirm message reception
+
     try:
         entry = data["entry"][0]["changes"][0]["value"]
         message = entry["messages"][0]
@@ -42,7 +44,7 @@ def webhook():
         global user_sessions
         response_text = ""
 
-        # Check if user is in a session
+        # Check if user is in an active session
         if sender_number in user_sessions:
             state = user_sessions[sender_number]
 
@@ -59,11 +61,11 @@ def webhook():
                 del user_sessions[sender_number]
 
             else:
-                response_text = "⚠️ Unexpected state. Resetting."
+                response_text = "⚠️ Unexpected state. Resetting session."
                 del user_sessions[sender_number]
 
         else:
-            # Handle initial choice
+            # Show menu or begin new session
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
                 response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
@@ -88,11 +90,11 @@ def webhook():
         send_message(sender_number, response_text)
 
     except Exception as e:
-        print("Error:", e)
+        print("❌ ERROR:", e)
 
     return "OK", 200
 
-# Function to send message back to user
+# Function to send message back to WhatsApp user
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -105,7 +107,9 @@ def send_message(to, message):
         "type": "text",
         "text": {"body": message}
     }
-    requests.post(url, headers=headers, json=data)
+
+    response = requests.post(url, headers=headers, json=data)
+    print("📤 Sent message response:", response.status_code, response.text)  # Log outgoing message
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
