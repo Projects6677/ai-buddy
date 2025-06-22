@@ -1,36 +1,35 @@
 import openai
 import requests
-import uuid
 import os
+import uuid
 
-# 🔐 Set your OpenAI API key securely via environment variable on Render
+# Set your OpenAI API key securely in environment
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 def generate_image(prompt):
-    print(f"🎨 Generating image with prompt: {prompt}")
+    print(f"🎨 Prompt: {prompt}")
 
     try:
-        response = openai.images.generate(
-            model="dall-e-3",
+        # Create the image using OpenAI DALL·E
+        response = openai.Image.create(
             prompt=prompt,
-            size="1024x1024",
-            quality="standard",
             n=1,
+            size="512x512",
+            response_format="url"
         )
 
-        image_url = response.data[0].url
-        print("📸 Image URL received:", image_url)
+        image_url = response['data'][0]['url']
+        print(f"🌐 Image URL: {image_url}")
 
-        # Download image
+        # Download and save the image
         image_data = requests.get(image_url).content
-        filename = f"/tmp/{uuid.uuid4().hex}.png"
-
-        with open(filename, "wb") as f:
+        file_path = f"/tmp/{uuid.uuid4().hex}.png"
+        with open(file_path, "wb") as f:
             f.write(image_data)
 
-        print("✅ Image saved to:", filename)
-        return filename
+        print("✅ Image downloaded and saved to:", file_path)
+        return file_path
 
     except Exception as e:
-        print("❌ Error generating image:", str(e))
+        print("❌ OpenAI Image Generation Error:", e)
         return None
