@@ -3,8 +3,11 @@ import uuid
 import os
 import time
 
+# ✅ Set this in Render Environment as: HUGGINGFACE_TOKEN = your_token
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
-MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+
+# ✅ Recommended Hugging Face model that is public and API-ready
+MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
 
 def generate_image(prompt):
     headers = {
@@ -13,17 +16,19 @@ def generate_image(prompt):
         "Accept": "image/png"
     }
 
-    payload = { "inputs": prompt }
+    payload = {
+        "inputs": prompt
+    }
 
     print("🎨 Prompt:", prompt)
     print("📤 Sending request to:", MODEL_URL)
 
     try:
         response = requests.post(MODEL_URL, headers=headers, json=payload)
-        print("🧾 Status code:", response.status_code)
+        print("🧾 Status:", response.status_code)
 
         if response.status_code == 503:
-            print("⏳ Model loading, retrying in 10s...")
+            print("⏳ Model loading... retrying in 10s")
             time.sleep(10)
             response = requests.post(MODEL_URL, headers=headers, json=payload)
 
@@ -34,8 +39,7 @@ def generate_image(prompt):
             print("✅ Image saved:", image_path)
             return image_path
 
-        print("❌ Failed to generate image.")
-        print("📩 Response:", response.text)
+        print("❌ Generation failed. Response:", response.text)
         return None
 
     except Exception as e:
