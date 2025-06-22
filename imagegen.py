@@ -1,46 +1,38 @@
-import requests
-import uuid
+import replicate
 import os
-import time
+import uuid
 
-HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
-
-MODEL_URL = "https://api-inference.huggingface.co/models/SG161222/Realistic_Vision_V5.1_noVAE"
+# Get your API token from Render env
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
 def generate_image(prompt):
-    headers = {
-        "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": "image/png"
-    }
-
-    payload = {
-        "inputs": prompt
-    }
-
     print("🎨 Prompt:", prompt)
-    print("📤 Sending request to:", MODEL_URL)
-
     try:
-        response = requests.post(MODEL_URL, headers=headers, json=payload)
-        print("🧾 Status code:", response.status_code)
+        # Set your token
+        replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-        if response.status_code == 503:
-            print("⏳ Model is loading. Retrying in 10 seconds...")
-            time.sleep(10)
-            response = requests.post(MODEL_URL, headers=headers, json=payload)
+        # Call SDXL model
+        output = replicate.run(
+            "stability-ai/sdxl:latest",
+            input={"prompt": prompt}
+        )
 
-        if response.status_code == 200:
+        # output is a list of image URLs
+        if output:
+            print("✅ Image URL:", output[0])
+            image_url = output[0]
             image_path = f"/tmp/{uuid.uuid4().hex}.png"
-            with open(image_path, "wb") as f:
-                f.write(response.content)
-            print("✅ Image saved at:", image_path)
-            return image_path
 
-        print("❌ Failed to generate image.")
-        print("📩 Response:", response.text)
-        return None
+            # Download the image
+            img_data = requests.get(image_url).content
+            with open(image_path, "wb") as handler:
+                handler.write(img_data)
+
+            return image_path
+        else:
+            print("❌ No image returned.")
+            return None
 
     except Exception as e:
-        print("🔥 Exception:", str(e))
+        print("❌ Replicate Error:", e)
         return None
