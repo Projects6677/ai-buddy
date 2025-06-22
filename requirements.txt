@@ -14,7 +14,3 @@ pdf2docx
 docx2pdf
 pytesseract
 sudo 
-install 
-tesseract-ocr 
-poppler-utils 
-libreoffice
