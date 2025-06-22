@@ -12,3 +12,10 @@ transformers
 torch
 pdf2docx
 docx2pdf
+pytesseract
+sudo 
+apt-get 
+install 
+tesseract-ocr 
+poppler-utils 
+libreoffice
