@@ -10,3 +10,5 @@ werkzeug
 python-dotenv
 transformers
 torch
+pdf2docx
+docx2pdf
