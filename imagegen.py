@@ -1,48 +1,33 @@
 import requests
 import uuid
+import os
 
-# 🔑 Your DeepAI API Key
-DEEPAI_API_KEY = "a6f5c646-e0ab-4cff-a515-39ed2e4a867a"
+# Replace with your actual Hugging Face token
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
 def generate_image(prompt):
-    print("🎨 Starting image generation...")
-    url = "https://api.deepai.org/api/text2img"
+    endpoint = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
     headers = {
-        "api-key": DEEPAI_API_KEY,
+        "Authorization": f"Bearer {HUGGINGFACE_TOKEN}",
+        "Accept": "image/png",
+        "Content-Type": "application/json"
     }
-    data = {
-        "text": prompt,
+    payload = {
+        "inputs": prompt,
     }
 
+    print("🎨 Sending request to Hugging Face for prompt:", prompt)
     try:
-        response = requests.post(url, headers=headers, data=data)
-        print("🔄 DeepAI API response status:", response.status_code)
-
-        if response.status_code != 200:
-            print("❌ API call failed:", response.text)
+        response = requests.post(endpoint, headers=headers, json=payload)
+        if response.status_code == 200:
+            image_path = f"/tmp/{uuid.uuid4().hex}.png"
+            with open(image_path, "wb") as f:
+                f.write(response.content)
+            print("✅ Image generated at:", image_path)
+            return image_path
+        else:
+            print("❌ Hugging Face generation failed:", response.status_code, response.text)
             return None
-
-        json_response = response.json()
-        print("📦 API JSON response:", json_response)
-
-        output_url = json_response.get("output_url")
-        if not output_url:
-            print("❌ output_url missing in response")
-            return None
-
-        print("✅ Image URL:", output_url)
-
-        # Download the image
-        image_data = requests.get(output_url).content
-        image_path = f"/tmp/{uuid.uuid4().hex}.png"
-
-        with open(image_path, "wb") as f:
-            f.write(image_data)
-
-        print("📁 Image saved successfully to:", image_path)
-        return image_path
-
     except Exception as e:
-        print("🚨 Exception during image generation:", e)
+        print("❌ Exception occurred while generating image:", e)
         return None
-
