@@ -7,3 +7,6 @@ PyMuPDF
 fpdf
 python-docx
 werkzeug
+python-dotenv
+transformers
+torch
