@@ -1,3 +1,5 @@
+# Store temporary user sessions
+user_sessions = {}
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
