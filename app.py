@@ -1,4 +1,4 @@
-# Full app.py with Option 4 + File Sending Back via WhatsApp
+# Full updated app.py with Option 4-4 PDF to Word
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
@@ -15,7 +15,7 @@ VERIFY_TOKEN = "ranga123"
 ACCESS_TOKEN = "EAAXPyMWrMskBO37ND9oRE1kNdlIQ8ZA2ZAr0RDdUZCYLAuoHpkkokNUfPR6k1ON6AyGu3RRTtHl2ESm6NKeXHMEPN9ujio5aqF2cGftQUFrYwG36zf9Y4xrxLBRp2mURKpUeoHMBZAZB5AZBweYQ0lHaCstALIZB3q05iRrgsZCC5GfTyPZAb4ZCrzgRm5OD2tJDr0gAZDZD"
 PHONE_NUMBER_ID = "740671045777701"
 
-user_sessions = {}  # Stores what user is doing (e.g., awaiting text, awaiting file)
+user_sessions = {}
 
 @app.route('/')
 def home():
@@ -46,7 +46,7 @@ def webhook():
         global user_sessions
         response_text = ""
 
-        # Handle media (for file uploads)
+        # Handle media (file uploads)
         if message["type"] == "document":
             media_id = message["document"]["id"]
             filename = message["document"]["filename"]
@@ -59,14 +59,21 @@ def webhook():
             if task == "awaiting_pdf":
                 converted = convert_pdf_to_text(file_path)
                 response_text = f"✅ Extracted text:\n{converted[:1000]}..."
+
             elif task == "awaiting_docx":
                 pdf_path = convert_docx_to_pdf(file_path)
                 send_file_to_user(sender_number, pdf_path, "application/pdf")
                 response_text = "✅ Word file converted to PDF."
+
+            elif task == "awaiting_pdf_to_docx":
+                docx_path = convert_pdf_to_word(file_path)
+                send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                response_text = "✅ PDF converted to Word and sent."
+
             else:
-                response_text = "❗I got your file but didn't understand what to do. Please choose option 4 again."
+                response_text = "❗I got your file but didn’t understand what to do. Please choose option 4 again."
             user_sessions.pop(sender_number, None)
-        
+
         elif message["type"] == "text":
             user_text = message["text"]["body"].strip()
             state = user_sessions.get(sender_number)
@@ -93,8 +100,11 @@ def webhook():
                 elif user_text == "3":
                     user_sessions[sender_number] = "awaiting_text"
                     response_text = "📝 Please send the text you want to convert into a PDF."
+                elif user_text == "4":
+                    user_sessions[sender_number] = "awaiting_pdf_to_docx"
+                    response_text = "📥 Please upload the PDF to convert into Word."
                 else:
-                    response_text = "❓ Please send 1, 2 or 3 to select a conversion type."
+                    response_text = "❓ Please send 1, 2, 3 or 4 to select a conversion type."
 
             elif state == "awaiting_text":
                 pdf_path = convert_text_to_pdf(user_text)
@@ -118,7 +128,8 @@ def webhook():
                         "📂 Choose conversion type:\n"
                         "1️⃣ PDF to Text\n"
                         "2️⃣ Word to PDF\n"
-                        "3️⃣ Text to PDF"
+                        "3️⃣ Text to PDF\n"
+                        "4️⃣ PDF to Word"
                     )
                 else:
                     response_text = (
@@ -165,7 +176,7 @@ def convert_text_to_pdf(text):
 
 def convert_pdf_to_text(pdf_path):
     try:
-        import fitz  # PyMuPDF
+        import fitz
         doc = fitz.open(pdf_path)
         text = "\n".join([page.get_text() for page in doc])
         return text
@@ -187,6 +198,19 @@ def convert_docx_to_pdf(docx_path):
     return pdf_path
 
 
+def convert_pdf_to_word(pdf_path):
+    import fitz
+    from docx import Document
+    doc = fitz.open(pdf_path)
+    word = Document()
+    for page in doc:
+        word.add_paragraph(page.get_text())
+    path = f"/tmp/{uuid.uuid4().hex}.docx"
+    word.save(path)
+    print("✅ PDF converted to Word:", path)
+    return path
+
+
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -204,7 +228,6 @@ def send_message(to, message):
 
 
 def send_file_to_user(to, file_path, mime_type):
-    # Upload media to WhatsApp first
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
     files = {'file': (os.path.basename(file_path), open(file_path, 'rb'), mime_type)}
     payload = {'messaging_product': 'whatsapp'}
