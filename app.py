@@ -33,10 +33,16 @@ def verify():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("🚀 Received message:", data)  # Debug log to confirm message reception
+    print("🚀 Received message:", data)
 
     try:
         entry = data["entry"][0]["changes"][0]["value"]
+
+        # ✅ Skip delivery/read status events
+        if "messages" not in entry:
+            print("⏭️ Ignoring non-message event")
+            return "No message to handle", 200
+
         message = entry["messages"][0]
         user_text = message["text"]["body"].strip()
         sender_number = message["from"]
@@ -44,7 +50,7 @@ def webhook():
         global user_sessions
         response_text = ""
 
-        # Check if user is in an active session
+        # Check if user is in a session
         if sender_number in user_sessions:
             state = user_sessions[sender_number]
 
@@ -65,7 +71,7 @@ def webhook():
                 del user_sessions[sender_number]
 
         else:
-            # Show menu or begin new session
+            # Show menu or begin session
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
                 response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
@@ -94,7 +100,7 @@ def webhook():
 
     return "OK", 200
 
-# Function to send message back to WhatsApp user
+# Send message to WhatsApp user
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -109,7 +115,7 @@ def send_message(to, message):
     }
 
     response = requests.post(url, headers=headers, json=data)
-    print("📤 Sent message response:", response.status_code, response.text)  # Log outgoing message
+    print("📤 Sent message response:", response.status_code, response.text)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
