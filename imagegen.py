@@ -3,11 +3,11 @@ import uuid
 import os
 import time
 
-# ✅ Set this in Render Environment as: HUGGINGFACE_TOKEN = your_token
+# ✅ Set your Hugging Face token in Render Environment: HUGGINGFACE_TOKEN
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
-# ✅ Recommended Hugging Face model that is public and API-ready
-MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo"
+# ✅ Public model that works with Inference API
+MODEL_URL = "https://api-inference.huggingface.co/models/digiplay/anything-v4.5"
 
 def generate_image(prompt):
     headers = {
@@ -25,10 +25,10 @@ def generate_image(prompt):
 
     try:
         response = requests.post(MODEL_URL, headers=headers, json=payload)
-        print("🧾 Status:", response.status_code)
+        print("🧾 Status code:", response.status_code)
 
         if response.status_code == 503:
-            print("⏳ Model loading... retrying in 10s")
+            print("⏳ Model loading... retrying in 10 seconds")
             time.sleep(10)
             response = requests.post(MODEL_URL, headers=headers, json=payload)
 
@@ -39,9 +39,10 @@ def generate_image(prompt):
             print("✅ Image saved:", image_path)
             return image_path
 
-        print("❌ Generation failed. Response:", response.text)
+        print("❌ Failed to generate image.")
+        print("📩 Response text:", response.text)
         return None
 
     except Exception as e:
-        print("🔥 Exception:", str(e))
+        print("🔥 Exception occurred:", str(e))
         return None
