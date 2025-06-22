@@ -1,5 +1,3 @@
-# Store temporary user sessions
-user_sessions = {}
 from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
@@ -10,8 +8,11 @@ import os
 app = Flask(__name__)
 
 VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "EAAJ0jnn2gyMBO7qaQPmalfFVqusr5zoZCuSwPy148FvvWzQA1CGhBgiPVJS4SHhNdAzAo9UHqHaQhHZCMPIB9BRzdIETq2grq2HwVBzrS3YbmRfYu3RUG3oQJ4ZCviyFhCK7q2IVhntst6ZAG6BGjGhsLZAVQLHXvSqxeWcNw9QwE0ZAgBnPF7tRtmqgj6BcfPxZA99LIrVz0gdwV7DJ4aXTPwLBzOSHr64v2CUPFmok8ZB3EQZDZD"  # Paste from Meta
+ACCESS_TOKEN = "EAAJ0jnn2gyMBO7qaQPmalfFVqusr5zoZCuSwPy148FvvWzQA1CGhBgiPVJS4SHhNdAzAo9UHqHaQhHZCMPIB9BRzdIETq2grq2HwVBzrS3YbmRfYu3RUG3oQJ4ZCviyFhCK7q2IVhntst6ZAG6BGjGhsLZAVQLHXvSqxeWcNw9QwE0ZAgBnPF7tRtmqgj6BcfPxZA99LIrVz0gdwV7DJ4aXTPwLBzOSHr64v2CUPFmok8ZB3EQZDZD"
 PHONE_NUMBER_ID = "698497970011796"
+
+# Store temporary user sessions
+user_sessions = {}
 
 @app.route('/')
 def home():
@@ -35,30 +36,57 @@ def webhook():
     try:
         entry = data["entry"][0]["changes"][0]["value"]
         message = entry["messages"][0]
-        user_text = message["text"]["body"]
+        user_text = message["text"]["body"].strip()
         sender_number = message["from"]
 
+        global user_sessions
         response_text = ""
 
-        # 1. Check for reminder keyword
-        if "remind me to" in user_text.lower():
-            response_text = schedule_reminder(user_text, sender_number)
+        # Check if user is in a session
+        if sender_number in user_sessions:
+            state = user_sessions[sender_number]
 
-        # 2. Check for grammar check
-        elif "check grammar:" in user_text.lower():
-            response_text = correct_grammar_with_grok(user_text[15:].strip())
+            if state == "awaiting_reminder":
+                response_text = schedule_reminder(user_text, sender_number)
+                del user_sessions[sender_number]
 
-        # 3. AI mode
-        elif "ai:" in user_text.lower():
-            prompt = user_text.split(":", 1)[1]
-            response_text = ai_reply(prompt.strip())
+            elif state == "awaiting_grammar":
+                response_text = correct_grammar_with_grok(user_text)
+                del user_sessions[sender_number]
 
-        # 4. Default fallback
+            elif state == "awaiting_ai":
+                response_text = ai_reply(user_text)
+                del user_sessions[sender_number]
+
+            else:
+                response_text = "⚠️ Unexpected state. Resetting."
+                del user_sessions[sender_number]
+
         else:
-            response_text = "Hey! I AM AI-Buddy:\n1️⃣ Remind you(Remind me to subject at time AM/PM)\n2️⃣ Fix grammar (use 'Check grammar:')\n3️⃣ Answer anything (use 'AI:')"
+            # Handle initial choice
+            if user_text == "1":
+                user_sessions[sender_number] = "awaiting_reminder"
+                response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
 
-        # Send the response back
+            elif user_text == "2":
+                user_sessions[sender_number] = "awaiting_grammar"
+                response_text = "✍️ Please type the sentence you want me to correct."
+
+            elif user_text == "3":
+                user_sessions[sender_number] = "awaiting_ai"
+                response_text = "🤖 Ask me anything!"
+
+            else:
+                response_text = (
+                    "👋 Welcome to AI-Buddy! Choose an option:\n"
+                    "1️⃣ Set a reminder\n"
+                    "2️⃣ Fix grammar\n"
+                    "3️⃣ Ask anything\n\n"
+                    "Reply with 1, 2, or 3 to begin."
+                )
+
         send_message(sender_number, response_text)
+
     except Exception as e:
         print("Error:", e)
 
@@ -80,7 +108,5 @@ def send_message(to, message):
     requests.post(url, headers=headers, json=data)
 
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
-
