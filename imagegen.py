@@ -2,7 +2,7 @@ import requests
 import time
 import uuid
 
-REPLICATE_API_TOKEN = "r8_Q9HsRNKWQaRMnm2zTflnkJkujCyMzKB0hnQHe"
+REPLICATE_API_TOKEN = "REPLICATE_API_TOKEN"
 
 def generate_image(prompt):
     headers = {
