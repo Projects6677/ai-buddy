@@ -1,38 +1,35 @@
 import replicate
-import os
 import uuid
+import os
+import requests  # needed for downloading the image
 
-# Get your API token from Render env
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")  # must be set in environment
+
+replicate.Client(api_token=REPLICATE_API_TOKEN)
 
 def generate_image(prompt):
     print("🎨 Prompt:", prompt)
-    try:
-        # Set your token
-        replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-        # Call SDXL model
+    try:
         output = replicate.run(
-            "stability-ai/sdxl:latest",
+            "stability-ai/sdxl:a9758cbf8a4f5fa5b017bf2f65ec9c0d5575551d7cb1199b1e14df3a0b3c9c65",
             input={"prompt": prompt}
         )
 
-        # output is a list of image URLs
-        if output:
-            print("✅ Image URL:", output[0])
+        print("🖼️ Output URLs:", output)
+
+        if output and isinstance(output, list):
             image_url = output[0]
             image_path = f"/tmp/{uuid.uuid4().hex}.png"
-
-            # Download the image
             img_data = requests.get(image_url).content
-            with open(image_path, "wb") as handler:
-                handler.write(img_data)
+
+            with open(image_path, "wb") as f:
+                f.write(img_data)
 
             return image_path
-        else:
-            print("❌ No image returned.")
-            return None
+
+        return None
 
     except Exception as e:
-        print("❌ Replicate Error:", e)
+        print("❌ Replicate Error:", str(e))
         return None
