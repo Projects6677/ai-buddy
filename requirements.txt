@@ -6,5 +6,5 @@ pytz
 PyMuPDF
 fpdf
 python-docx
-replicate
 werkzeug
+openai
