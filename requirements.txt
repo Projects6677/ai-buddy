@@ -6,3 +6,4 @@ pytz
 PyMuPDF
 fpdf
 python-docx
+replicate
