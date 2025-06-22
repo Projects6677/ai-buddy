@@ -14,3 +14,4 @@ pdf2docx
 docx2pdf
 pytesseract
 sudo 
+pdf2image
