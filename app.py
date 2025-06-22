@@ -6,6 +6,8 @@ import requests
 import os
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
+from pdf2docx import Converter
+import docx2pdf
 
 app = Flask(__name__)
 
@@ -171,6 +173,26 @@ def convert_text_to_pdf(text):
     path = f"/tmp/{secure_filename(text[:10])}.pdf"
     pdf.output(path)
     return path
+
+def convert_pdf_to_docx(pdf_path):
+    docx_path = pdf_path.replace(".pdf", ".docx")
+    try:
+        cv = Converter(pdf_path)
+        cv.convert(docx_path)
+        cv.close()
+        return docx_path
+    except Exception as e:
+        print("❌ PDF to DOCX conversion error:", e)
+        return None
+
+def convert_docx_to_pdf(docx_path):
+    pdf_path = docx_path.replace(".docx", ".pdf")
+    try:
+        docx2pdf.convert(docx_path, pdf_path)
+        return pdf_path
+    except Exception as e:
+        print("❌ DOCX to PDF conversion error:", e)
+        return None
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
