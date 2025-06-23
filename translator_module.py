@@ -1,18 +1,17 @@
 # translator_module.py
-from transformers import MarianMTModel, MarianTokenizer
+from transformers import pipeline
 
-# Preload lightweight model (English ↔ French as an example)
-model_name = "Helsinki-NLP/opus-mt-mul-en"
-tokenizer = MarianTokenizer.from_pretrained(model_name)
-model = MarianMTModel.from_pretrained(model_name)
+# Load lightweight translation pipelines
+translator_en_to_any = pipeline("translation_en_to_fr", model="t5-small")   # example: English to French
+translator_any_to_en = pipeline("translation", model="Helsinki-NLP/opus-mt-mul-en")
 
-def translate_to_english(text):
+def translate_text(text, direction="any_to_en"):
     try:
-        # Tokenize and translate
-        inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-        translated = model.generate(**inputs)
-        english_text = tokenizer.decode(translated[0], skip_special_tokens=True)
-        return english_text
+        if direction == "en_to_any":
+            result = translator_en_to_any(text)
+        else:
+            result = translator_any_to_en(text)
+        return result[0]['translation_text']
     except Exception as e:
-        print("❌ Translation error:", e)
-        return "❌ Failed to translate text."
+        print("Translation error:", e)
+        return "❌ Failed to translate. Please try again."
