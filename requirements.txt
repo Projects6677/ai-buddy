@@ -14,4 +14,3 @@ pdf2docx
 docx2pdf
 pytesseract
 pdf2image
-git+https://github.com/BedirT/craiyon.py.git
