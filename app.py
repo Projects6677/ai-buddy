@@ -70,16 +70,16 @@ def webhook():
             elif state == "awaiting_conversion_choice":
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_pdf"
-                    response_text = "📥 Please upload a PDF file to convert to text."
+                    response_text = "📅 Please upload a PDF file to convert to text."
                 elif user_text == "2":
                     user_sessions[sender_number] = "awaiting_docx"
-                    response_text = "📥 Please upload a Word (.docx) file to convert to PDF."
+                    response_text = "📅 Please upload a Word (.docx) file to convert to PDF."
                 elif user_text == "3":
                     user_sessions[sender_number] = "awaiting_text"
-                    response_text = "📝 Please send the text you want to convert into a PDF."
+                    response_text = "🖍️ Please send the text you want to convert into a PDF."
                 elif user_text == "4":
                     user_sessions[sender_number] = "awaiting_pdf_to_docx"
-                    response_text = "📥 Please upload the PDF to convert into Word."
+                    response_text = "📅 Please upload the PDF to convert into Word."
                 else:
                     response_text = "❓ Please send 1, 2, 3, 4 or 5 to select a conversion type."
 
@@ -120,7 +120,7 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_image_prompt"
-                    response_text = "🖼️ Please type the description for the image you want me to generate."
+                    response_text = "🎨 Please type the description for the image you want me to generate."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
