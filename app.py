@@ -12,8 +12,6 @@ import fitz  # pymupdf for pdf to text extraction
 import subprocess
 from pdf2image import convert_from_path
 import pytesseract
-from image_gen_hf import generate_image_url  # <- UPDATED IMPORT
-from translator_module import translate_text  # <- NEW IMPORT
 
 app = Flask(__name__)
 
@@ -82,26 +80,12 @@ def webhook():
                     user_sessions[sender_number] = "awaiting_pdf_to_docx"
                     response_text = "📥 Please upload the PDF to convert into Word."
                 else:
-                    response_text = "❓ Please send 1, 2, 3, 4 or 5 to select a conversion type."
+                    response_text = "❓ Please send 1, 2, 3 or 4 to select a conversion type."
 
             elif state == "awaiting_text":
                 pdf_path = convert_text_to_pdf(user_text)
                 send_file_to_user(sender_number, pdf_path, "application/pdf")
                 response_text = "✅ Your text was converted to PDF and sent."
-                user_sessions.pop(sender_number, None)
-
-            elif state == "awaiting_image_prompt":
-                image_path = generate_image_url(user_text)
-                print("🔍 Image path:", image_path)
-                if image_path:
-                    send_image_to_user(sender_number, image_path)
-                    response_text = "✅ Generated image sent!"
-                else:
-                    response_text = "❌ Failed to generate image. Check prompt or try again later."
-                user_sessions.pop(sender_number, None)
-
-            elif state == "awaiting_translation":
-                response_text = translate_text(user_text)
                 user_sessions.pop(sender_number, None)
 
             else:
@@ -123,21 +107,13 @@ def webhook():
                         "3️⃣ Text to PDF\n"
                         "4️⃣ PDF to Word"
                     )
-                elif user_text == "5":
-                    user_sessions[sender_number] = "awaiting_image_prompt"
-                    response_text = "🖼️ Please type the description for the image you want me to generate."
-                elif user_text == "6":
-                    user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please enter the text you'd like translated."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
                         "1️⃣ Set a reminder\n"
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
-                        "4️⃣ File/Text conversion\n"
-                        "5️⃣ Generate an image from text\n"
-                        "6️⃣ Translator"
+                        "4️⃣ File/Text conversion"
                     )
 
         send_message(sender_number, response_text)
@@ -190,28 +166,6 @@ def send_file_to_user(to, file_path, mime_type):
             }
         }
         requests.post(msg_url, headers=headers, json=data)
-
-def send_image_to_user(to, image_path):
-    upload_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    files = {"file": ("generated_image.jpg", open(image_path, "rb"), "image/jpeg")}
-    data = {"messaging_product": "whatsapp"}
-
-    media_response = requests.post(upload_url, headers=headers, files=files, data=data)
-    media_id = media_response.json().get("id")
-
-    if media_id:
-        message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "image",
-            "image": {
-                "id": media_id,
-                "caption": "Here is your generated image!"
-            }
-        }
-        requests.post(message_url, headers=headers, json=payload)
 
 def convert_text_to_pdf(text):
     pdf = FPDF()
