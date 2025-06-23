@@ -2,7 +2,6 @@
 import openai
 import os
 
-# Automatically gets the API key from Render environment variables
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 def generate_image_url(prompt):
@@ -16,9 +15,6 @@ def generate_image_url(prompt):
         image_url = response["data"][0]["url"]
         print("✅ Image URL:", image_url)
         return image_url
-    except openai.error.OpenAIError as e:
-        print("❌ OpenAI API error:", e)
-        return None
-    except Exception as ex:
-        print("❌ Unexpected error during image generation:", ex)
+    except Exception as e:
+        print("❌ Error during image generation:", e)
         return None
