@@ -1,28 +1,21 @@
-# image_gen_craiyon.py
-from craiyon import Craiyon  # pip install craiyon.py
+def send_image_to_user(to, image_path):
+    upload_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    files = {"file": ("generated_image.jpg", open(image_path, "rb"), "image/jpeg")}
+    data = {"messaging_product": "whatsapp"}
 
-# Initialize with mode
-generator = Craiyon("art")  # or "drawing", "photo"
+    media_response = requests.post(upload_url, headers=headers, files=files, data=data)
+    media_id = media_response.json().get("id")
 
-def set_craiyon_mode(mode: str):
-    global generator
-    try:
-        generator = Craiyon(mode)
-        print(f"🖌️ Craiyon mode set to: {mode}")
-    except Exception as e:
-        print("❌ Failed to set Craiyon mode:", e)
-
-def generate_image_url(prompt):
-    try:
-        print("🧠 Generating image for prompt:", prompt)
-        result = generator.generate(prompt)
-        if result and result.images:
-            url = result.images[0]
-            print("✅ Image URL:", url)
-            return url
-        else:
-            print("❌ No image returned from Craiyon")
-            return None
-    except Exception as e:
-        print("❌ Craiyon error:", e)
-        return None
+    if media_id:
+        message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "image",
+            "image": {
+                "id": media_id,
+                "caption": "Here is your generated image!"
+            }
+        }
+        requests.post(message_url, headers=headers, json=payload)
