@@ -180,6 +180,38 @@ def convert_text_to_pdf(text):
     pdf.output(path)
     return path
 
+def convert_pdf_to_text(pdf_path):
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text
+    except Exception as e:
+        print("❌ PDF to text error:", e)
+        return None
+
+def convert_pdf_to_docx(pdf_path):
+    docx_path = pdf_path.replace(".pdf", ".docx")
+    try:
+        cv = Converter(pdf_path)
+        cv.convert(docx_path, start=0, end=None)
+        cv.close()
+        return docx_path
+    except Exception as e:
+        print("❌ PDF to DOCX error:", e)
+        return None
+
+def convert_docx_to_pdf(docx_path):
+    pdf_path = docx_path.replace(".docx", ".pdf")
+    try:
+        convert(docx_path, pdf_path)
+        return pdf_path
+    except Exception as e:
+        print("❌ DOCX to PDF error:", e)
+        return None
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
