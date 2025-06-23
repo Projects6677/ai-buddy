@@ -3,7 +3,7 @@ requests
 apscheduler
 python-dateutil
 pytz
-pymuPDF
+pymupdf
 fpdf
 python-docx
 werkzeug
@@ -13,7 +13,5 @@ torch
 pdf2docx
 docx2pdf
 pytesseract
-sudo 
 pdf2image
-craiyon.py
-
+craiyon
