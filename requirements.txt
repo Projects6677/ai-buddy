@@ -15,4 +15,4 @@ docx2pdf
 pytesseract
 sudo 
 pdf2image
-openai>=1.3.5
+openai>=1.0.0
