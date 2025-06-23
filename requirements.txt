@@ -16,4 +16,4 @@ pytesseract
 sudo 
 pdf2image
 openai>=1.3.5
-
+craiyon.py
