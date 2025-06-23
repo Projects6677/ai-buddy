@@ -1,28 +1,36 @@
 # image_gen.py
 import openai
 import os
+import traceback
 
-# Initialize the OpenAI client with the environment-stored API key
 client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 def generate_image_url(prompt):
     try:
-        print("🧠 Generating image for prompt:", prompt)
-        
-        # Image generation using the required model
-        response = client.images.generate(
-            model="dall-e-2",            # ✅ Required model
-            prompt=prompt,
-            n=1,
-            size="512x512",
-            response_format="url"
+        print("🧠 Generating DALL·E 3 image for prompt:", prompt)
+
+        response = client.chat.completions.create(
+            model="gpt-4-vision-preview",  # or "gpt-4" depending on availability
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Generate an image for this prompt: {prompt}"
+                        }
+                    ]
+                }
+            ],
+            tools=[{"type": "image_generation"}],
+            tool_choice="auto",
         )
 
-        # Extract image URL
-        image_url = response.data[0].url
-        print("✅ Image URL:", image_url)
+        image_url = response.choices[0].message.tool_calls[0].function.arguments['url']
+        print("✅ DALL·E 3 Image URL:", image_url)
         return image_url
 
     except Exception as e:
-        print("❌ Error during image generation:", e)
+        print("❌ DALL·E 3 generation error:", e)
+        traceback.print_exc()
         return None
