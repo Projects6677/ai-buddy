@@ -12,7 +12,7 @@ import fitz  # pymupdf for pdf to text extraction
 import subprocess
 from pdf2image import convert_from_path
 import pytesseract
-from image_gen_craiyon import generate_image_url  # <- UPDATED IMPORT
+from image_gen_hf import generate_image_url  # <- UPDATED IMPORT
 from translator import translate_text  # <- NEW IMPORT
 
 app = Flask(__name__)
