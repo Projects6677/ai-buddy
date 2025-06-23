@@ -1,36 +1,20 @@
 # image_gen.py
-import openai
-import os
-import traceback
+from craiyon import Craiyon  # pip install craiyon.py
 
-client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Use default model: "art", or "drawing", or "photo"
+generator = Craiyon()  # Default is art mode
 
 def generate_image_url(prompt):
     try:
-        print("🧠 Generating DALL·E 3 image for prompt:", prompt)
-
-        response = client.chat.completions.create(
-            model="gpt-4-vision-preview",  # or "gpt-4" depending on availability
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"Generate an image for this prompt: {prompt}"
-                        }
-                    ]
-                }
-            ],
-            tools=[{"type": "image_generation"}],
-            tool_choice="auto",
-        )
-
-        image_url = response.choices[0].message.tool_calls[0].function.arguments['url']
-        print("✅ DALL·E 3 Image URL:", image_url)
-        return image_url
-
+        print("🧠 Generating image via Craiyon for prompt:", prompt)
+        result = generator.generate(prompt, model_type="photo")  # try "art", "drawing" too
+        if result and result.images:
+            url = result.images[0]
+            print("✅ Image URL:", url)
+            return url
+        else:
+            print("❌ No images generated")
+            return None
     except Exception as e:
-        print("❌ DALL·E 3 generation error:", e)
-        traceback.print_exc()
+        print("❌ Craiyon generation error:", e)
         return None
