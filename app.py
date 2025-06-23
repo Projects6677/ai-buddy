@@ -13,7 +13,6 @@ import subprocess
 from pdf2image import convert_from_path
 import pytesseract
 from image_gen_hf import generate_image_url  # <- UPDATED IMPORT
-from translator import translate_text  # <- NEW IMPORT
 
 app = Flask(__name__)
 
@@ -100,10 +99,6 @@ def webhook():
                     response_text = "❌ Failed to generate image. Check prompt or try again later."
                 user_sessions.pop(sender_number, None)
 
-            elif state == "awaiting_translation":
-                response_text = translate_text(user_text)
-                user_sessions.pop(sender_number, None)
-
             else:
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_reminder"
@@ -126,9 +121,6 @@ def webhook():
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_image_prompt"
                     response_text = "🖼️ Please type the description for the image you want me to generate."
-                elif user_text == "6":
-                    user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please enter the sentence you want to translate."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
@@ -136,8 +128,7 @@ def webhook():
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
                         "4️⃣ File/Text conversion\n"
-                        "5️⃣ Generate an image from text\n"
-                        "6️⃣ Translate text"
+                        "5️⃣ Generate an image from text"
                     )
 
         send_message(sender_number, response_text)
@@ -147,3 +138,85 @@ def webhook():
         print("❌ ERROR:", e)
 
     return "OK", 200
+
+def send_message(to, message):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message}
+    }
+    requests.post(url, headers=headers, json=data)
+
+def send_file_to_user(to, file_path, mime_type):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+
+    filename = os.path.basename(file_path)
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+
+    media_upload = requests.post(
+        url,
+        headers=headers,
+        files={"file": (filename, file_data, mime_type)},
+        data={"messaging_product": "whatsapp"}
+    )
+
+    media_id = media_upload.json().get("id")
+    if media_id:
+        msg_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+        data = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "document",
+            "document": {
+                "id": media_id,
+                "caption": "Here is your file."
+            }
+        }
+        requests.post(msg_url, headers=headers, json=data)
+
+def send_image_to_user(to, image_path):
+    upload_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    files = {"file": ("generated_image.jpg", open(image_path, "rb"), "image/jpeg")}
+    data = {"messaging_product": "whatsapp"}
+
+    media_response = requests.post(upload_url, headers=headers, files=files, data=data)
+    media_id = media_response.json().get("id")
+
+    if media_id:
+        message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "image",
+            "image": {
+                "id": media_id,
+                "caption": "Here is your generated image!"
+            }
+        }
+        requests.post(message_url, headers=headers, json=payload)
+
+def convert_text_to_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    lines = text.split('\n')
+    for line in lines:
+        pdf.multi_cell(0, 10, line)
+    safe_filename = secure_filename(text[:20]) or "converted"
+    path = os.path.join("/tmp", f"{safe_filename}.pdf")
+    pdf.output(path)
+    return path
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
