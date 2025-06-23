@@ -12,7 +12,8 @@ import fitz  # pymupdf for pdf to text extraction
 import subprocess
 from pdf2image import convert_from_path
 import pytesseract
-from image_gen_craiyon import generate_image_url, set_craiyon_mode  # <- UPDATED IMPORT
+from image_gen_craiyon import generate_image_url  # <- UPDATED IMPORT
+from translator import translate_text  # <- NEW IMPORT
 
 app = Flask(__name__)
 
@@ -70,16 +71,16 @@ def webhook():
             elif state == "awaiting_conversion_choice":
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_pdf"
-                    response_text = "📥 Please upload a PDF file to convert to text."
+                    response_text = "📅 Please upload a PDF file to convert to text."
                 elif user_text == "2":
                     user_sessions[sender_number] = "awaiting_docx"
-                    response_text = "📥 Please upload a Word (.docx) file to convert to PDF."
+                    response_text = "📅 Please upload a Word (.docx) file to convert to PDF."
                 elif user_text == "3":
                     user_sessions[sender_number] = "awaiting_text"
                     response_text = "📝 Please send the text you want to convert into a PDF."
                 elif user_text == "4":
                     user_sessions[sender_number] = "awaiting_pdf_to_docx"
-                    response_text = "📥 Please upload the PDF to convert into Word."
+                    response_text = "📅 Please upload the PDF to convert into Word."
                 else:
                     response_text = "❓ Please send 1, 2, 3, 4 or 5 to select a conversion type."
 
@@ -90,13 +91,17 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_image_prompt":
-                image_url = generate_image_url(user_text)
-                print("🔍 Image URL:", image_url)
-                if image_url:
-                    send_image_to_user(sender_number, image_url)
+                image_path = generate_image_url(user_text)
+                print("🔍 Image path:", image_path)
+                if image_path:
+                    send_image_to_user(sender_number, image_path)
                     response_text = "✅ Generated image sent!"
                 else:
-                    response_text = "❌ Failed to generate image. Check prompt."
+                    response_text = "❌ Failed to generate image. Check prompt or try again later."
+                user_sessions.pop(sender_number, None)
+
+            elif state == "awaiting_translation":
+                response_text = translate_text(user_text)
                 user_sessions.pop(sender_number, None)
 
             else:
@@ -120,8 +125,10 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_image_prompt"
-                    set_craiyon_mode("art")  # Optional: change to "photo" or "drawing"
                     response_text = "🖼️ Please type the description for the image you want me to generate."
+                elif user_text == "6":
+                    user_sessions[sender_number] = "awaiting_translation"
+                    response_text = "🌐 Please enter the sentence you want to translate."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
@@ -129,7 +136,8 @@ def webhook():
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
                         "4️⃣ File/Text conversion\n"
-                        "5️⃣ Generate an image from text"
+                        "5️⃣ Generate an image from text\n"
+                        "6️⃣ Translate text"
                     )
 
         send_message(sender_number, response_text)
@@ -139,5 +147,3 @@ def webhook():
         print("❌ ERROR:", e)
 
     return "OK", 200
-
-# ... rest of code unchanged ...
