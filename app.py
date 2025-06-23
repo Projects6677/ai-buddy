@@ -2,7 +2,7 @@ from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
-from translator import translate_text  # <- NEW IMPORT
+from translator_module import translate_text  # <- NEW IMPORT
 import requests
 import os
 from fpdf import FPDF
