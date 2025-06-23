@@ -1,21 +1,36 @@
-def send_image_to_user(to, image_path):
-    upload_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    files = {"file": ("generated_image.jpg", open(image_path, "rb"), "image/jpeg")}
-    data = {"messaging_product": "whatsapp"}
+import base64
+import os
+import requests
 
-    media_response = requests.post(upload_url, headers=headers, files=files, data=data)
-    media_id = media_response.json().get("id")
+# Craiyon uses simple POST API to generate images
+def generate_image_url(prompt):
+    try:
+        print("🧠 Generating image for prompt:", prompt)
 
-    if media_id:
-        message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "image",
-            "image": {
-                "id": media_id,
-                "caption": "Here is your generated image!"
-            }
-        }
-        requests.post(message_url, headers=headers, json=payload)
+        response = requests.post(
+            "https://backend.craiyon.com/generate",
+            json={"prompt": prompt},
+            timeout=60
+        )
+
+        if response.status_code != 200:
+            print("❌ Craiyon API failed with status:", response.status_code)
+            return None
+
+        data = response.json()
+        if "images" not in data or not data["images"]:
+            print("❌ No images returned from Craiyon")
+            return None
+
+        # Decode the first image from base64 and save it
+        image_data = base64.b64decode(data["images"][0])
+        save_path = "/tmp/generated_image.jpg"
+        with open(save_path, "wb") as f:
+            f.write(image_data)
+
+        print("✅ Image saved to:", save_path)
+        return save_path
+
+    except Exception as e:
+        print("❌ Error generating image with Craiyon:", e)
+        return None
