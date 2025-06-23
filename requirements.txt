@@ -15,4 +15,5 @@ docx2pdf
 pytesseract
 pdf2image
 googletrans==4.0.0-rc1
+sentencepiece
 
