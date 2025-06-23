@@ -1,8 +1,8 @@
 # image_gen_craiyon.py
 from craiyon import Craiyon  # pip install craiyon.py
 
-# Set default mode
-generator = Craiyon("art")  # Can be changed to "photo" or "drawing"
+# Initialize with mode
+generator = Craiyon("art")  # or "drawing", "photo"
 
 def set_craiyon_mode(mode: str):
     global generator
