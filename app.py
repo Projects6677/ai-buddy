@@ -13,6 +13,7 @@ import subprocess
 from pdf2image import convert_from_path
 import pytesseract
 from image_gen_hf import generate_image_url  # <- UPDATED IMPORT
+from translator_module import translate_text  # <- NEW IMPORT
 
 app = Flask(__name__)
 
@@ -99,6 +100,10 @@ def webhook():
                     response_text = "❌ Failed to generate image. Check prompt or try again later."
                 user_sessions.pop(sender_number, None)
 
+            elif state == "awaiting_translation":
+                response_text = translate_text(user_text)
+                user_sessions.pop(sender_number, None)
+
             else:
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_reminder"
@@ -121,6 +126,9 @@ def webhook():
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_image_prompt"
                     response_text = "🖼️ Please type the description for the image you want me to generate."
+                elif user_text == "6":
+                    user_sessions[sender_number] = "awaiting_translation"
+                    response_text = "🌐 Please enter the text you'd like translated."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
@@ -128,7 +136,8 @@ def webhook():
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
                         "4️⃣ File/Text conversion\n"
-                        "5️⃣ Generate an image from text"
+                        "5️⃣ Generate an image from text\n"
+                        "6️⃣ Translator"
                     )
 
         send_message(sender_number, response_text)
