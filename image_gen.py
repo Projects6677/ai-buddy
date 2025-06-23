@@ -1,20 +1,28 @@
-# image_gen.py
+# image_gen_craiyon.py
 from craiyon import Craiyon  # pip install craiyon.py
 
-# Use default model: "art", or "drawing", or "photo"
-generator = Craiyon()  # Default is art mode
+# Set default mode
+generator = Craiyon("art")  # Can be changed to "photo" or "drawing"
+
+def set_craiyon_mode(mode: str):
+    global generator
+    try:
+        generator = Craiyon(mode)
+        print(f"🖌️ Craiyon mode set to: {mode}")
+    except Exception as e:
+        print("❌ Failed to set Craiyon mode:", e)
 
 def generate_image_url(prompt):
     try:
-        print("🧠 Generating image via Craiyon for prompt:", prompt)
-        result = generator.generate(prompt, model_type="photo")  # try "art", "drawing" too
+        print("🧠 Generating image for prompt:", prompt)
+        result = generator.generate(prompt)
         if result and result.images:
             url = result.images[0]
             print("✅ Image URL:", url)
             return url
         else:
-            print("❌ No images generated")
+            print("❌ No image returned from Craiyon")
             return None
     except Exception as e:
-        print("❌ Craiyon generation error:", e)
+        print("❌ Craiyon error:", e)
         return None
