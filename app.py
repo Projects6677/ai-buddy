@@ -2,6 +2,7 @@ from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
+from translator import translate_text  # <- NEW IMPORT
 import requests
 import os
 from fpdf import FPDF
@@ -88,6 +89,10 @@ def webhook():
                 response_text = "✅ Your text was converted to PDF and sent."
                 user_sessions.pop(sender_number, None)
 
+            elif state == "awaiting_translation":
+                response_text = translate_text(user_text)
+                user_sessions.pop(sender_number, None)
+
             else:
                 if user_text == "1":
                     user_sessions[sender_number] = "awaiting_reminder"
@@ -107,13 +112,17 @@ def webhook():
                         "3️⃣ Text to PDF\n"
                         "4️⃣ PDF to Word"
                     )
+                elif user_text == "5":
+                    user_sessions[sender_number] = "awaiting_translation"
+                    response_text = "🌐 Please type the sentence to translate to English."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
                         "1️⃣ Set a reminder\n"
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
-                        "4️⃣ File/Text conversion"
+                        "4️⃣ File/Text conversion\n"
+                        "5️⃣ Translator"
                     )
 
         send_message(sender_number, response_text)
