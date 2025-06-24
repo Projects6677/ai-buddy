@@ -1,7 +1,7 @@
 import requests
 import os
 
-GROK_API_KEY = os.getenv("GROK_API_KEY") or "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"
+GROK_API_KEY = os.getenv("GROK_API_KEY") or "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"
 GROK_API_URL = "https://api.groq.com/openai/v1/chat/completions"  # Replace with actual URL
 
 def ai_reply(prompt):
