@@ -214,15 +214,15 @@ def send_welcome_message(to, name=None):
     greeting = f"🤖 *Welcome back, {name}!*" if name else "🤖 *Welcome to AI Buddy!*"
     msg = (
         f"{greeting}\n\n"
-        "Here’s what I can do:\n"
-        "1️⃣ Set Reminders\n"
-        "2️⃣ Fix Grammar\n"
-        "3️⃣ Ask Me Anything\n"
-        "4️⃣ Convert Files & Text\n"
-        "5️⃣ Translate Languages\n"
-        "6️⃣ Check the Weather\n\n"
-        "Type a number to begin ✅\n"
-        "Or send *menu* anytime to come back here 🔁"
+        "What can I help you with today?\n\n"
+        "🧠 *1. Reminder* ⏰ — I’ll remember stuff so you don’t have to\n"
+        "📖 *2. Grammar Fix* ✍️ — Send your messy sentences, I’ll clean ‘em\n"
+        "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
+        "📁 *4. File/Text Conversion* 📄 — PDF ↔ Word ↔ Text\n"
+        "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
+        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
+        "📌 *Reply with a number (1–6) to begin*\n"
+        "🔁 *Type 'menu' any time to come back here*"
     )
     send_message(to, msg)
 
@@ -261,30 +261,59 @@ def convert_text_to_pdf(text):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, text)
-    file_path = "converted_text.pdf"
+
+    lines = text.split('\n')
+    for line in lines:
+        pdf.multi_cell(0, 10, line)
+
+    filename = secure_filename(text[:20].strip().replace(" ", "_") or "converted")
+    file_path = os.path.join("/tmp", f"{filename}.pdf")
     pdf.output(file_path)
     return file_path
 
+
 def send_file_to_user(to, file_path, mime_type):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    # Step 1: Upload the file to get media ID
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}"
     }
-    files = {
-        'file': (os.path.basename(file_path), open(file_path, 'rb'), mime_type)
-    }
-    data = {
+
+    with open(file_path, "rb") as f:
+        files = {
+            'file': (os.path.basename(file_path), f, mime_type)
+        }
+        data = {
+        "messaging_product": "whatsapp",
+        "type": "document"  # VERY IMPORTANT
+        }
+        upload_response = requests.post(url, headers=headers, files=files, data=data)
+        upload_response = requests.post(url, headers=headers, files=files, data=data)
+        print("📤 Upload Response:", upload_response.json())
+
+    media_id = upload_response.json().get("id")
+    if not media_id:
+        print("❌ Failed to upload media.")
+        return
+
+    # Step 2: Send the uploaded file using media ID
+    message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "document",
         "document": {
-            "filename": os.path.basename(file_path),
-            "caption": "📎 Here's your converted file."
+            "id": media_id,
+            "caption": "📄 Here is your converted PDF file."
         }
     }
-    response = requests.post(url, headers=headers, data={"messaging_product": "whatsapp", "to": to, "type": "document"}, files=files)
-    print("📎 File sent:", response.status_code)
+    send_response = requests.post(message_url, headers={
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }, json=payload)
+
+    print("✅ File sent:", send_response.json())
+
 
 # === RUN ===
 if __name__ == '__main__':
