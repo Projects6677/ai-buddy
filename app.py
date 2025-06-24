@@ -2,15 +2,16 @@ from flask import Flask, request
 from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
-from translator_module import translate_text  # <- NEW IMPORT
-from weather import get_weather  # <- NEW IMPORT
+from translator_module import translate_text
+from weather import get_weather
 import requests
 import os
+import time  # <- for progress simulation
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
 from docx2pdf import convert
-import fitz  # pymupdf for pdf to text extraction
+import fitz
 import subprocess
 from pdf2image import convert_from_path
 import pytesseract
@@ -65,6 +66,7 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_grammar":
+                send_progress(sender_number)  # 🔄 Progress Simulation
                 response_text = correct_grammar_with_grok(user_text)
                 user_sessions.pop(sender_number, None)
 
@@ -73,6 +75,7 @@ def webhook():
                     user_sessions.pop(sender_number, None)
                     response_text = get_main_menu()
                 else:
+                    send_progress(sender_number)  # 🔄 Progress Simulation
                     response_text = ai_reply(user_text)
 
             elif state == "awaiting_conversion_choice":
@@ -92,14 +95,14 @@ def webhook():
                     response_text = "❓ Please send 1, 2, 3 or 4 to select a conversion type."
 
             elif state == "awaiting_text":
+                send_progress(sender_number)  # 🔄 Progress Simulation
                 pdf_path = convert_text_to_pdf(user_text)
                 send_file_to_user(sender_number, pdf_path, "application/pdf")
                 response_text = "✅ Your text was converted to PDF and sent."
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_translation":
-                response_text = "🔄 Translating..."
-                send_message(sender_number, response_text)
+                send_progress(sender_number)  # 🔄 Progress Simulation
                 response_text = translate_text(user_text)
                 user_sessions.pop(sender_number, None)
 
@@ -148,6 +151,32 @@ def webhook():
 
     return "OK", 200
 
+def send_message(to, message):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message}
+    }
+    requests.post(url, headers=headers, json=data)
+
+# 🔄 Progress Simulation Function
+def send_progress(to, delay=1.2):
+    stages = [
+        "🔄 Starting... 25%",
+        "⏳ Working... 50%",
+        "⚙️ Almost there... 75%",
+        "✅ Done! 100%"
+    ]
+    for stage in stages:
+        send_message(to, stage)
+        time.sleep(delay)
+
 def get_main_menu():
     return (
         "👾 AI-Buddy Main Menu:\n\n"
@@ -163,64 +192,7 @@ def get_main_menu():
         "Reply with the number ⌨️"
     )
 
-def send_message(to, message):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": message}
-    }
-    requests.post(url, headers=headers, json=data)
-
-def convert_text_to_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    lines = text.split('\n')
-    for line in lines:
-        pdf.multi_cell(0, 10, line)
-    safe_filename = secure_filename(text[:20]) or "converted"
-    path = os.path.join("/tmp", f"{safe_filename}.pdf")
-    pdf.output(path)
-    return path
-
-def convert_pdf_to_text(pdf_path):
-    try:
-        doc = fitz.open(pdf_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        doc.close()
-        return text
-    except Exception as e:
-        print("❌ PDF to text error:", e)
-        return None
-
-def convert_pdf_to_docx(pdf_path):
-    docx_path = pdf_path.replace(".pdf", ".docx")
-    try:
-        cv = Converter(pdf_path)
-        cv.convert(docx_path, start=0, end=None)
-        cv.close()
-        return docx_path
-    except Exception as e:
-        print("❌ PDF to DOCX error:", e)
-        return None
-
-def convert_docx_to_pdf(docx_path):
-    pdf_path = docx_path.replace(".docx", ".pdf")
-    try:
-        convert(docx_path, pdf_path)
-        return pdf_path
-    except Exception as e:
-        print("❌ DOCX to PDF error:", e)
-        return None
+# NOTE: Make sure your send_file_to_user, convert_text_to_pdf, etc., are defined below
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
