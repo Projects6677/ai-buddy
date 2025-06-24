@@ -3,6 +3,7 @@ from grok_ai import correct_grammar_with_grok
 from ai import ai_reply
 from reminders import schedule_reminder
 from translator_module import translate_text  # <- NEW IMPORT
+from weather import get_weather  # <- NEW IMPORT
 import requests
 import os
 from fpdf import FPDF
@@ -90,16 +91,11 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_translation":
-                if user_text.lower().startswith("en:"):
-                    response_text = translate_text(user_text[3:].strip(), direction="en_to_fr")
-                elif user_text.lower().startswith("fr:"):
-                    response_text = translate_text(user_text[3:].strip(), direction="fr_to_en")
-                else:
-                    response_text = (
-                        "🌍 Please prefix your message with the language code:\n"
-                        "`en:` to translate English to French\n"
-                        "`fr:` to translate French to English"
-                    )
+                response_text = translate_text(user_text)
+                user_sessions.pop(sender_number, None)
+
+            elif state == "awaiting_weather":
+                response_text = get_weather(user_text)
                 user_sessions.pop(sender_number, None)
 
             else:
@@ -123,7 +119,10 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please type your sentence starting with `en:` or `fr:`."
+                    response_text = "🌐 Please type the sentence to translate."
+                elif user_text == "6":
+                    user_sessions[sender_number] = "awaiting_weather"
+                    response_text = "🏙️ Please enter your location in India (e.g., Kanuru, Delhi, Mumbai):"
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
@@ -131,7 +130,8 @@ def webhook():
                         "2️⃣ Fix grammar\n"
                         "3️⃣ Ask anything\n"
                         "4️⃣ File/Text conversion\n"
-                        "5️⃣ Translator"
+                        "5️⃣ Translator\n"
+                        "6️⃣ Check weather in your city"
                     )
 
         send_message(sender_number, response_text)
