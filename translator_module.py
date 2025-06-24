@@ -1,17 +1,18 @@
 # translator_module.py
 from transformers import pipeline
 
-# Load lightweight translation pipelines
-translator_en_to_any = pipeline("translation_en_to_fr", model="t5-small")   # example: English to French
-translator_any_to_en = pipeline("translation", model="Helsinki-NLP/opus-mt-mul-en")
+# Lightweight models
+translator_en_to_fr = pipeline("translation_en_to_fr", model="t5-small")
+translator_fr_to_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
 
-def translate_text(text, direction="any_to_en"):
+def translate_text(text):
     try:
-        if direction == "en_to_any":
-            result = translator_en_to_any(text)
+        # Auto-detect if input is French or English based on first characters (simple logic)
+        if any(char in text.lower() for char in "éàçèùôîï"):  # assume French input
+            result = translator_fr_to_en(text)
         else:
-            result = translator_any_to_en(text)
+            result = translator_en_to_fr(text)
         return result[0]['translation_text']
     except Exception as e:
         print("Translation error:", e)
-        return "❌ Failed to translate. Please try again."
+        return "❌ Translation failed. Try again."
