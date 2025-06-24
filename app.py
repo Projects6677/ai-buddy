@@ -56,6 +56,10 @@ def webhook():
             user_text = message["text"]["body"].strip()
             state = user_sessions.get(sender_number)
 
+            if user_text in ["0", "menu"]:
+                state = None
+                user_sessions.pop(sender_number, None)
+
             if state == "awaiting_reminder":
                 response_text = schedule_reminder(user_text, sender_number)
                 user_sessions.pop(sender_number, None)
@@ -65,8 +69,11 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_ai":
-                response_text = ai_reply(user_text)
-                user_sessions.pop(sender_number, None)
+                if user_text == "0":
+                    user_sessions.pop(sender_number, None)
+                    response_text = get_main_menu()
+                else:
+                    response_text = ai_reply(user_text)
 
             elif state == "awaiting_conversion_choice":
                 if user_text == "1":
@@ -91,6 +98,8 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_translation":
+                response_text = "🔄 Translating..."
+                send_message(sender_number, response_text)
                 response_text = translate_text(user_text)
                 user_sessions.pop(sender_number, None)
 
@@ -107,7 +116,7 @@ def webhook():
                     response_text = "✍️ Please type the sentence you want me to correct."
                 elif user_text == "3":
                     user_sessions[sender_number] = "awaiting_ai"
-                    response_text = "🤖 Ask me anything!"
+                    response_text = "🤖 Ask me anything! (Type 0 or menu to go back)"
                 elif user_text == "4":
                     user_sessions[sender_number] = "awaiting_conversion_choice"
                     response_text = (
@@ -119,20 +128,17 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please type the sentence to translate."
+                    response_text = (
+                        "🌍 Translator Selected!\n"
+                        "📤 Step 1: Send your sentence starting with 'en:' or 'fr:'\n"
+                        "🔄 Step 2: I will translate and send back\n"
+                        "📥 Step 3: If it's voice, you'll hear it!"
+                    )
                 elif user_text == "6":
                     user_sessions[sender_number] = "awaiting_weather"
                     response_text = "🏙️ Please enter your location in India (e.g., Kanuru, Delhi, Mumbai):"
                 else:
-                    response_text = (
-                        "👋 Welcome to AI-Buddy! Choose an option:\n"
-                        "1️⃣ Set a reminder\n"
-                        "2️⃣ Fix grammar\n"
-                        "3️⃣ Ask anything\n"
-                        "4️⃣ File/Text conversion\n"
-                        "5️⃣ Translator\n"
-                        "6️⃣ Check weather in your city"
-                    )
+                    response_text = get_main_menu()
 
         send_message(sender_number, response_text)
         print("✅ Sent reply:", response_text)
@@ -141,6 +147,21 @@ def webhook():
         print("❌ ERROR:", e)
 
     return "OK", 200
+
+def get_main_menu():
+    return (
+        "👾 AI-Buddy Main Menu:\n\n"
+        "🧠 1. Reminder ⏰\n"
+        "📖 2. Grammar Fix ✍️\n"
+        "🤖 3. Ask Me Anything 💬\n"
+        "📁 4. File/Text Conversion 📄\n"
+        "🌍 5. Translator 🔁\n"
+        "⛅ 6. Weather Bot ☁️\n"
+        "📤 Step 1: Send your sentence starting with 'en:' or 'fr:'\n"
+        "🔄 Step 2: I will translate and send back\n"
+        "📥 Step 3: If it's voice, you'll hear it!\n\n"
+        "Reply with the number ⌨️"
+    )
 
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
@@ -155,35 +176,6 @@ def send_message(to, message):
         "text": {"body": message}
     }
     requests.post(url, headers=headers, json=data)
-
-def send_file_to_user(to, file_path, mime_type):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    with open(file_path, "rb") as f:
-        file_data = f.read()
-
-    filename = os.path.basename(file_path)
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-
-    media_upload = requests.post(
-        url,
-        headers=headers,
-        files={"file": (filename, file_data, mime_type)},
-        data={"messaging_product": "whatsapp"}
-    )
-
-    media_id = media_upload.json().get("id")
-    if media_id:
-        msg_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-        data = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "document",
-            "document": {
-                "id": media_id,
-                "caption": "Here is your file."
-            }
-        }
-        requests.post(msg_url, headers=headers, json=data)
 
 def convert_text_to_pdf(text):
     pdf = FPDF()
