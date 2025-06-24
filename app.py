@@ -114,7 +114,7 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please type the sentence to translate to English."
+                    response_text = "🌐 Please type the sentence to translate to English or from English to French."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
