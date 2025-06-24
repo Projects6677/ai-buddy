@@ -68,7 +68,6 @@ def webhook():
         user_data = load_user_data()
         response_text = ""
 
-        # 👋 First-time greeting
         if user_text.lower() in ["hi", "hello", "hey", "start"]:
             if sender_number not in user_data:
                 send_message(sender_number, "👋 Hi there! What should I call you?")
@@ -93,7 +92,6 @@ def webhook():
             send_message(sender_number, get_main_menu(sender_number))
             return "OK", 200
 
-        # === SESSION STATES ===
         if state == "awaiting_reminder":
             response_text = schedule_reminder(user_text, sender_number)
             user_sessions.pop(sender_number, None)
@@ -131,7 +129,7 @@ def webhook():
             send_progress(sender_number)
             pdf_path = convert_text_to_pdf(user_text)
             send_file_to_user(sender_number, pdf_path, "application/pdf")
-            response_text = "✅ Your text was converted to PDF and sent."
+            send_message(sender_number, "✅ Your text was converted to PDF and sent.")
             user_sessions.pop(sender_number, None)
 
         elif state == "awaiting_translation":
@@ -143,7 +141,6 @@ def webhook():
             response_text = get_weather(user_text)
             user_sessions.pop(sender_number, None)
 
-        # === MAIN MENU HANDLING ===
         else:
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
@@ -176,8 +173,8 @@ def webhook():
                     "Type *menu* to see options or *help* if you're lost. I gotchu 😅"
                 )
 
-        send_message(sender_number, response_text)
-        print("✅ Sent reply:", response_text)
+        if response_text:
+            send_message(sender_number, response_text)
 
     except Exception as e:
         print("❌ ERROR:", e)
@@ -271,7 +268,6 @@ def convert_text_to_pdf(text):
     pdf.output(file_path)
     return file_path
 
-
 def send_file_to_user(to, file_path, mime_type):
     # Step 1: Upload the file to get media ID
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
@@ -284,10 +280,9 @@ def send_file_to_user(to, file_path, mime_type):
             'file': (os.path.basename(file_path), f, mime_type)
         }
         data = {
-        "messaging_product": "whatsapp",
-        "type": "document"  # VERY IMPORTANT
+            "messaging_product": "whatsapp",
+            "type": "document"
         }
-        upload_response = requests.post(url, headers=headers, files=files, data=data)
         upload_response = requests.post(url, headers=headers, files=files, data=data)
         print("📤 Upload Response:", upload_response.json())
 
@@ -313,7 +308,6 @@ def send_file_to_user(to, file_path, mime_type):
     }, json=payload)
 
     print("✅ File sent:", send_response.json())
-
 
 # === RUN ===
 if __name__ == '__main__':
