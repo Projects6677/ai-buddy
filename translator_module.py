@@ -1,18 +1,25 @@
 # translator_module.py
-from transformers import pipeline
+import requests
+import os
 
-# Lightweight models
-translator_en_to_fr = pipeline("translation_en_to_fr", model="t5-small")
-translator_fr_to_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
+# Set your Hugging Face API token (set it in your .env on Render)
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+API_URLS = {
+    "en_to_fr": "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-fr",
+    "fr_to_en": "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-fr-en"
+}
 
-def translate_text(text):
+def translate_text(text, direction="fr_to_en"):
     try:
-        # Auto-detect if input is French or English based on first characters (simple logic)
-        if any(char in text.lower() for char in "éàçèùôîï"):  # assume French input
-            result = translator_fr_to_en(text)
-        else:
-            result = translator_en_to_fr(text)
-        return result[0]['translation_text']
+        headers = {
+            "Authorization": f"Bearer {HUGGINGFACE_API_KEY}"
+        }
+        payload = {"inputs": text}
+        url = API_URLS[direction]
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        translated = response.json()[0]['translation_text']
+        return translated
     except Exception as e:
         print("Translation error:", e)
-        return "❌ Translation failed. Try again."
+        return "⚠️ Failed to translate."
