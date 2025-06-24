@@ -90,7 +90,16 @@ def webhook():
                 user_sessions.pop(sender_number, None)
 
             elif state == "awaiting_translation":
-                response_text = translate_text(user_text)
+                if user_text.lower().startswith("en:"):
+                    response_text = translate_text(user_text[3:].strip(), direction="en_to_fr")
+                elif user_text.lower().startswith("fr:"):
+                    response_text = translate_text(user_text[3:].strip(), direction="fr_to_en")
+                else:
+                    response_text = (
+                        "🌍 Please prefix your message with the language code:\n"
+                        "`en:` to translate English to French\n"
+                        "`fr:` to translate French to English"
+                    )
                 user_sessions.pop(sender_number, None)
 
             else:
@@ -114,7 +123,7 @@ def webhook():
                     )
                 elif user_text == "5":
                     user_sessions[sender_number] = "awaiting_translation"
-                    response_text = "🌐 Please type the sentence to translate to English or from English to French."
+                    response_text = "🌐 Please type your sentence starting with `en:` or `fr:`."
                 else:
                     response_text = (
                         "👋 Welcome to AI-Buddy! Choose an option:\n"
