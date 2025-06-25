@@ -63,10 +63,23 @@ def webhook():
 
         message = entry["messages"][0]
         sender_number = message["from"]
-        user_text = message["text"]["body"].strip()
+
+        # ✅ FIX: Handle both text and document messages safely
+        user_text = ""
+        if message.get("type") == "text":
+            user_text = message["text"]["body"].strip()
+        elif message.get("type") == "document":
+            file_id = message["document"]["id"]
+            filename = message["document"]["filename"]
+            user_text = f"[file received: {filename}]"
+        else:
+            user_text = "[Unsupported message type]"
+
         state = user_sessions.get(sender_number)
         user_data = load_user_data()
         response_text = ""
+
+        # ... (rest of your original code continues as-is)
 
         if user_text.lower() in ["hi", "hello", "hey", "start"]:
             if sender_number not in user_data:
