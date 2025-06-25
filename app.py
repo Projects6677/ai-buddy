@@ -21,7 +21,7 @@ app = Flask(__name__)
 
 # === CONFIG ===
 VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "your_actual_access_token"
+ACCESS_TOKEN = "EAAXPyMWrMskBO4tAwKG3gcefN1lJCffFhdVmx912RG3wfZAmllzb3k1jOXdZA2snfaJo5NoLHYGKtBIZAfH5FQWncQNgKyumjA0rahXCA3KKwJo4X4HJkBBPqguNWD24hhQ9aBz18iYaMPIXHvi777hXOZC8bsUt5qrrZAPtgSR37Qwv2R1UPvoE6qDdBDVHeqwZDZD"
 PHONE_NUMBER_ID = "740671045777701"
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
