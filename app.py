@@ -21,7 +21,7 @@ app = Flask(__name__)
 
 # === CONFIG ===
 VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "EAAXPyMWrMskBO4tAwKG3gcefN1lJCffFhdVmx912RG3wfZAmllzb3k1jOXdZA2snfaJo5NoLHYGKtBIZAfH5FQWncQNgKyumjA0rahXCA3KKwJo4X4HJkBBPqguNWD24hhQ9aBz18iYaMPIXHvi777hXOZC8bsUt5qrrZAPtgSR37Qwv2R1UPvoE6qDdBDVHeqwZDZD"
+ACCESS_TOKEN = "your_actual_access_token"
 PHONE_NUMBER_ID = "740671045777701"
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -182,7 +182,6 @@ def webhook():
     return "OK", 200
 
 # === HELPER FUNCTIONS ===
-
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -258,56 +257,75 @@ def convert_text_to_pdf(text):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
-
     lines = text.split('\n')
     for line in lines:
         pdf.multi_cell(0, 10, line)
-
     filename = secure_filename(text[:20].strip().replace(" ", "_") or "converted")
     file_path = os.path.join("/tmp", f"{filename}.pdf")
     pdf.output(file_path)
     return file_path
 
 def send_file_to_user(to, file_path, mime_type):
-    # Step 1: Upload the file to get media ID
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
-    }
-
+    headers = { "Authorization": f"Bearer {ACCESS_TOKEN}" }
     with open(file_path, "rb") as f:
-        files = {
-            'file': (os.path.basename(file_path), f, mime_type)
-        }
-        data = {
-            "messaging_product": "whatsapp",
-            "type": "document"
-        }
+        files = { 'file': (os.path.basename(file_path), f, mime_type) }
+        data = { "messaging_product": "whatsapp", "type": "document" }
         upload_response = requests.post(url, headers=headers, files=files, data=data)
-        print("📤 Upload Response:", upload_response.json())
-
     media_id = upload_response.json().get("id")
     if not media_id:
-        print("❌ Failed to upload media.")
         return
-
-    # Step 2: Send the uploaded file using media ID
     message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "document",
-        "document": {
-            "id": media_id,
-            "caption": "📄 Here is your converted PDF file."
-        }
+        "document": { "id": media_id, "caption": "📄 Here is your converted PDF file." }
     }
-    send_response = requests.post(message_url, headers={
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }, json=payload)
+    requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-    print("✅ File sent:", send_response.json())
+# === NEW PDF/WORD/TEXT ROUTES ===
+
+@app.route('/pdf_to_word', methods=['POST'])
+def convert_pdf_to_word():
+    file = request.files['file']
+    if file.filename.endswith('.pdf'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        output_path = input_path.replace('.pdf', '.docx')
+        file.save(input_path)
+        converter = Converter(input_path)
+        converter.convert(output_path, start=0, end=None)
+        converter.close()
+        return f"PDF converted to Word successfully: {output_path}"
+    return "Please upload a valid PDF file."
+
+
+@app.route('/word_to_pdf', methods=['POST'])
+def convert_word_to_pdf():
+    file = request.files['file']
+    if file.filename.endswith('.docx'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        file.save(input_path)
+        convert(input_path)
+        output_path = input_path.replace('.docx', '.pdf')
+        return f"Word converted to PDF successfully: {output_path}"
+    return "Please upload a valid Word (.docx) file."
+
+
+@app.route('/pdf_to_text', methods=['POST'])
+def extract_text_from_pdf():
+    file = request.files['file']
+    if file.filename.endswith('.pdf'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        file.save(input_path)
+        doc = fitz.open(input_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text if text else "No readable text found in PDF."
+    return "Please upload a valid PDF file."
+
 
 # === RUN ===
 if __name__ == '__main__':
