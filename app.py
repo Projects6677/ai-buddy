@@ -209,10 +209,10 @@ def send_message(to, message):
     }
     requests.post(url, headers=headers, json=data)
 
-def send_progress(to, delay=1.2):
-    for stage in ["🔄 Processing... 25%", "⏳ Still working... 50%", "⚙️ Almost done... 75%", "✅ Done! 100%"]:
-        send_message(to, stage)
-        time.sleep(delay)
+def send_progress(to):
+    send_message(to, "🔄 Loading...\n[█████-----] 50%")
+    time.sleep(1.5)
+    send_message(to, "✅ Done!")
 
 def send_startup_effect(to):
     for step in ["👀 Booting up...", "🔌 Connecting circuits...", "💭 Warming up brain cells...", "🌈 AI Buddy is ready to roll! 🎉"]:
