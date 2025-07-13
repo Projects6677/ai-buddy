@@ -4,7 +4,6 @@ from ai import ai_reply
 from reminders import schedule_reminder
 from translator_module import translate_text
 from weather import get_weather
-from image import generate_starryai_image
 import requests
 import os
 import time
@@ -20,12 +19,14 @@ from pdf2image import convert_from_path
 
 app = Flask(__name__)
 
+# === CONFIG ===
 VERIFY_TOKEN = "ranga123"
 ACCESS_TOKEN = "EAAXPyMWrMskBO4tAwKG3gcefN1lJCffFhdVmx912RG3wfZAmllzb3k1jOXdZA2snfaJo5NoLHYGKtBIZAfH5FQWncQNgKyumjA0rahXCA3KKwJo4X4HJkBBPqguNWD24hhQ9aBz18iYaMPIXHvi777hXOZC8bsUt5qrrZAPtgSR37Qwv2R1UPvoE6qDdBDVHeqwZDZD"
 PHONE_NUMBER_ID = "740671045777701"
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
+# === JSON Memory ===
 def load_user_data():
     if not os.path.exists(USER_DATA_FILE):
         return {}
@@ -36,6 +37,7 @@ def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f)
 
+# === ROUTES ===
 @app.route('/')
 def home():
     return "WhatsApp AI Assistant is Live!"
@@ -62,6 +64,7 @@ def webhook():
         message = entry["messages"][0]
         sender_number = message["from"]
 
+        # ✅ FIX: Handle both text and document messages safely
         user_text = ""
         if message.get("type") == "text":
             user_text = message["text"]["body"].strip()
@@ -75,6 +78,8 @@ def webhook():
         state = user_sessions.get(sender_number)
         user_data = load_user_data()
         response_text = ""
+
+        # ... (rest of your original code continues as-is)
 
         if user_text.lower() in ["hi", "hello", "hey", "start"]:
             if sender_number not in user_data:
@@ -149,20 +154,6 @@ def webhook():
             response_text = get_weather(user_text)
             user_sessions.pop(sender_number, None)
 
-        elif state == "awaiting_image_prompt":
-            send_message(sender_number, "🧠 Generating your sci-fi art... hang tight.")
-            image_url = generate_starryai_image(user_text)
-            if image_url.startswith("http"):
-                send_image(sender_number, image_url, f"Here’s your image for: '{user_text}'")
-            else:
-                send_message(sender_number, image_url)
-            user_sessions.pop(sender_number, None)
-
-        elif user_text == "7":
-            user_sessions[sender_number] = "awaiting_image_prompt"
-            send_message(sender_number, "🖼️ Send me a prompt and I’ll turn it into a sci-fi image!")
-            return "OK", 200
-
         else:
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
@@ -203,6 +194,7 @@ def webhook():
 
     return "OK", 200
 
+# === HELPER FUNCTIONS ===
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -216,23 +208,6 @@ def send_message(to, message):
         "text": {"body": message}
     }
     requests.post(url, headers=headers, json=data)
-
-def send_image(to, image_url, caption=""):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "image",
-        "image": {
-            "link": image_url,
-            "caption": caption
-        }
-    }
-    requests.post(url, headers=headers, json=payload)
 
 def send_progress(to):
     send_message(to, "🔄 Loading...\n[█████-----] 50%")
@@ -254,9 +229,8 @@ def send_welcome_message(to, name=None):
         "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
         "📁 *4. File/Text Conversion* 📄 — PDF ↔ Word ↔ Text\n"
         "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
-        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n"
-        "🖼️ *7. AI Image Generator* — Type 7 and send a prompt\n\n"
-        "📌 *Reply with a number (1–7) to begin*\n"
+        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
+        "📌 *Reply with a number (1–6) to begin*\n"
         "🔁 *Type 'menu' any time to come back here*"
     )
     send_message(to, msg)
@@ -286,9 +260,8 @@ def get_main_menu(user_number=None):
         "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
         "📁 *4. File/Text Conversion* 📄 — PDF ↔ Word ↔ Text\n"
         "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
-        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n"
-        "🖼️ *7. AI Image Generator* — Type 7 and send a prompt\n\n"
-        "📌 *Reply with a number (1–7) to begin*\n"
+        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
+        "📌 *Reply with a number (1–6) to begin*\n"
         "🔁 *Type 'menu' any time to come back here*"
     )
 
@@ -324,6 +297,50 @@ def send_file_to_user(to, file_path, mime_type):
     }
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
+# === NEW PDF/WORD/TEXT ROUTES ===
+
+@app.route('/pdf_to_word', methods=['POST'])
+def convert_pdf_to_word():
+    file = request.files['file']
+    if file.filename.endswith('.pdf'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        output_path = input_path.replace('.pdf', '.docx')
+        file.save(input_path)
+        converter = Converter(input_path)
+        converter.convert(output_path, start=0, end=None)
+        converter.close()
+        return f"PDF converted to Word successfully: {output_path}"
+    return "Please upload a valid PDF file."
+
+
+@app.route('/word_to_pdf', methods=['POST'])
+def convert_word_to_pdf():
+    file = request.files['file']
+    if file.filename.endswith('.docx'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        file.save(input_path)
+        convert(input_path)
+        output_path = input_path.replace('.docx', '.pdf')
+        return f"Word converted to PDF successfully: {output_path}"
+    return "Please upload a valid Word (.docx) file."
+
+
+@app.route('/pdf_to_text', methods=['POST'])
+def extract_text_from_pdf():
+    file = request.files['file']
+    if file.filename.endswith('.pdf'):
+        input_path = os.path.join("uploads", secure_filename(file.filename))
+        file.save(input_path)
+        doc = fitz.open(input_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text if text else "No readable text found in PDF."
+    return "Please upload a valid PDF file."
+
+
+# === RUN ===
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
