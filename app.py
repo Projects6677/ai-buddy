@@ -287,7 +287,7 @@ def extract_text_from_pdf_file(file_path):
         doc.close()
         return text.strip()
     except Exception as e:
-        print(f"❌ PDF extraction error: {e}")
+        print(f"❌ Error extracting PDF text: {e}")
         return ""
 
 def send_file_to_user(to, file_path, mime_type):
@@ -343,7 +343,7 @@ def extract_text_from_pdf():
     if file.filename.endswith('.pdf'):
         input_path = os.path.join("uploads", secure_filename(file.filename))
         file.save(input_path)
-        extracted_text = extract_text_from_pdf(local_path)
+        extracted_text = extract_text_from_pdf_file(local_path)
         return text if text else "No readable text found in PDF."
     return "Please upload a valid PDF file."
 
