@@ -278,6 +278,18 @@ def convert_text_to_pdf(text):
     pdf.output(file_path)
     return file_path
 
+def extract_text_from_pdf_file(file_path):
+    try:
+        doc = fitz.open(file_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text.strip()
+    except Exception as e:
+        print(f"❌ PDF extraction error: {e}")
+        return ""
+
 def send_file_to_user(to, file_path, mime_type):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
     headers = { "Authorization": f"Bearer {ACCESS_TOKEN}" }
@@ -331,11 +343,7 @@ def extract_text_from_pdf():
     if file.filename.endswith('.pdf'):
         input_path = os.path.join("uploads", secure_filename(file.filename))
         file.save(input_path)
-        doc = fitz.open(input_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        doc.close()
+        extracted_text = extract_text_from_pdf(local_path)
         return text if text else "No readable text found in PDF."
     return "Please upload a valid PDF file."
 
