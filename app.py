@@ -15,7 +15,6 @@ from pdf2docx import Converter
 from docx2pdf import convert
 import fitz  # PyMuPDF
 import pytesseract
-from pdf2image import convert_from_path
 
 app = Flask(__name__)
 
@@ -25,6 +24,10 @@ ACCESS_TOKEN = "EAAXPyMWrMskBO4tAwKG3gcefN1lJCffFhdVmx912RG3wfZAmllzb3k1jOXdZA2s
 PHONE_NUMBER_ID = "740671045777701"
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
+
+# Create an 'uploads' directory for temporary files
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
 
 # === JSON Memory ===
 def load_user_data():
@@ -51,6 +54,28 @@ def verify():
         return challenge, 200
     return "Verification failed", 403
 
+def download_media_from_whatsapp(media_id):
+    try:
+        url = f"https://graph.facebook.com/v19.0/{media_id}/"
+        headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        media_info = response.json()
+        media_url = media_info['url']
+        
+        download_response = requests.get(media_url, headers=headers)
+        download_response.raise_for_status()
+        
+        temp_filename = secure_filename(media_id)
+        file_path = os.path.join("uploads", temp_filename)
+        with open(file_path, "wb") as f:
+            f.write(download_response.content)
+        
+        return file_path
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error downloading media: {e}")
+        return None
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
@@ -63,33 +88,82 @@ def webhook():
 
         message = entry["messages"][0]
         sender_number = message["from"]
+        state = user_sessions.get(sender_number)
 
-        # ✅ FIX: Handle both text and document messages safely
+        # ✅ --- FULLY IMPLEMENTED FILE HANDLING ---
+        # This block now handles all incoming document types based on user state.
+        if message.get("type") == "document":
+            media_id = message["document"]["id"]
+            downloaded_path = None
+            
+            # --- Case 1: PDF to Text ---
+            if state == "awaiting_pdf_to_text":
+                send_message(sender_number, "✅ Received PDF. Extracting text...")
+                downloaded_path = download_media_from_whatsapp(media_id)
+                if downloaded_path:
+                    extracted_text = extract_text_from_pdf_file(downloaded_path)
+                    response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
+                    send_message(sender_number, response)
+                    os.remove(downloaded_path) # Cleanup
+                    user_sessions.pop(sender_number, None) # Reset state
+                else:
+                    send_message(sender_number, "❌ Sorry, I couldn't process your file.")
+                return "OK", 200
+            
+            # --- Case 2: Word to PDF ---
+            elif state == "awaiting_docx_to_pdf":
+                send_message(sender_number, "✅ Received Word file. Converting to PDF...")
+                downloaded_path = download_media_from_whatsapp(media_id)
+                if downloaded_path:
+                    output_pdf_path = downloaded_path + ".pdf"
+                    convert(downloaded_path, output_pdf_path) # Perform conversion
+                    send_file_to_user(sender_number, output_pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
+                    os.remove(downloaded_path) # Cleanup
+                    os.remove(output_pdf_path) # Cleanup
+                    user_sessions.pop(sender_number, None) # Reset state
+                else:
+                    send_message(sender_number, "❌ Sorry, I couldn't process your file.")
+                return "OK", 200
+
+            # --- Case 3: PDF to Word ---
+            elif state == "awaiting_pdf_to_docx":
+                send_message(sender_number, "✅ Received PDF. Converting to Word...")
+                downloaded_path = download_media_from_whatsapp(media_id)
+                if downloaded_path:
+                    output_docx_path = downloaded_path + ".docx"
+                    cv = Converter(downloaded_path)
+                    cv.convert(output_docx_path, start=0, end=None)
+                    cv.close()
+                    send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+                    os.remove(downloaded_path) # Cleanup
+                    os.remove(output_docx_path) # Cleanup
+                    user_sessions.pop(sender_number, None) # Reset state
+                else:
+                    send_message(sender_number, "❌ Sorry, I couldn't process your file.")
+                return "OK", 200
+            
+            # --- Default case for unexpected files ---
+            else:
+                send_message(sender_number, "I received a file, but I wasn't expecting one. Please select an option from the menu first.")
+                return "OK", 200
+        
         user_text = ""
         if message.get("type") == "text":
             user_text = message["text"]["body"].strip()
-        elif message.get("type") == "document":
-            file_id = message["document"]["id"]
-            filename = message["document"]["filename"]
-            user_text = f"[file received: {filename}]"
         else:
             user_text = "[Unsupported message type]"
 
-        state = user_sessions.get(sender_number)
         user_data = load_user_data()
         response_text = ""
-
-        # ... (rest of your original code continues as-is)
 
         if user_text.lower() in ["hi", "hello", "hey", "start"]:
             if sender_number not in user_data:
                 send_message(sender_number, "👋 Hi there! What should I call you?")
                 user_sessions[sender_number] = "awaiting_name"
-                return "OK", 200
             else:
                 send_startup_effect(sender_number)
                 send_welcome_message(sender_number, user_data[sender_number]["name"])
-                return "OK", 200
+            return "OK", 200
 
         if state == "awaiting_name":
             name = user_text.split()[0].capitalize()
@@ -123,12 +197,13 @@ def webhook():
                 response_text = ai_reply(user_text)
 
         elif state == "awaiting_conversion_choice":
+            # ✅ All options now set the correct state
             if user_text == "1":
-                user_sessions[sender_number] = "awaiting_pdf"
-                response_text = "📥 Please upload a PDF to convert to text."
+                user_sessions[sender_number] = "awaiting_pdf_to_text"
+                response_text = "📥 Please upload the PDF you want to convert to text."
             elif user_text == "2":
-                user_sessions[sender_number] = "awaiting_docx"
-                response_text = "📥 Please upload a Word (.docx) file to convert to PDF."
+                user_sessions[sender_number] = "awaiting_docx_to_pdf"
+                response_text = "📥 Please upload the Word (.docx) file you want to convert to PDF."
             elif user_text == "3":
                 user_sessions[sender_number] = "awaiting_text"
                 response_text = "📝 Please send the text you want to convert into a PDF."
@@ -138,11 +213,11 @@ def webhook():
             else:
                 response_text = "❓ Please send 1, 2, 3 or 4 to choose a conversion type."
 
-        elif state == "awaiting_text":
+        elif state == "awaiting_text": # This is the working Text-to-PDF
             send_progress(sender_number)
             pdf_path = convert_text_to_pdf(user_text)
-            send_file_to_user(sender_number, pdf_path, "application/pdf")
-            send_message(sender_number, "✅ Your text was converted to PDF and sent.")
+            send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
+            os.remove(pdf_path) # Clean up the temp file
             user_sessions.pop(sender_number, None)
 
         elif state == "awaiting_translation":
@@ -154,7 +229,7 @@ def webhook():
             response_text = get_weather(user_text)
             user_sessions.pop(sender_number, None)
 
-        else:
+        else: # Main menu options
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
                 response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
@@ -181,10 +256,7 @@ def webhook():
                 user_sessions[sender_number] = "awaiting_weather"
                 response_text = "🏙️ Enter your city (e.g., Delhi, Kanuru, Mumbai):"
             else:
-                response_text = (
-                    "🤔 I didn’t get that one.\n"
-                    "Type *menu* to see options or *help* if you're lost. I gotchu 😅"
-                )
+                response_text = "🤔 I didn’t get that one.\nType *menu* to see options."
 
         if response_text:
             send_message(sender_number, response_text)
@@ -197,16 +269,8 @@ def webhook():
 # === HELPER FUNCTIONS ===
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": message}
-    }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
     requests.post(url, headers=headers, json=data)
 
 def send_progress(to):
@@ -237,20 +301,15 @@ def send_welcome_message(to, name=None):
 
 def get_time_based_icon():
     hour = datetime.now().hour
-    if 5 <= hour < 12:
-        return "🌞"
-    elif 12 <= hour < 18:
-        return "🌤️"
-    elif 18 <= hour < 21:
-        return "🌇"
-    else:
-        return "🌙"
+    if 5 <= hour < 12: return "🌞"
+    elif 12 <= hour < 18: return "🌤️"
+    elif 18 <= hour < 21: return "🌇"
+    else: return "🌙"
 
 def get_main_menu(user_number=None):
     icon = get_time_based_icon()
     name = load_user_data().get(user_number, {}).get("name", "")
     name_line = f"👤 *User:* {name}\n" if name else ""
-
     return (
         f"{icon} *AI-Buddy Main Menu* {icon}\n"
         f"{name_line}\n"
@@ -270,11 +329,9 @@ def convert_text_to_pdf(text):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
-    lines = text.split('\n')
-    for line in lines:
-        pdf.multi_cell(0, 10, line)
-    filename = secure_filename(text[:20].strip().replace(" ", "_") or "converted")
-    file_path = os.path.join("/tmp", f"{filename}.pdf")
+    pdf.multi_cell(0, 10, text)
+    filename = secure_filename(f"converted_{int(time.time())}.pdf")
+    file_path = os.path.join("uploads", filename)
     pdf.output(file_path)
     return file_path
 
@@ -290,63 +347,28 @@ def extract_text_from_pdf_file(file_path):
         print(f"❌ Error extracting PDF text: {e}")
         return ""
 
-def send_file_to_user(to, file_path, mime_type):
+def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = { "Authorization": f"Bearer {ACCESS_TOKEN}" }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     with open(file_path, "rb") as f:
-        files = { 'file': (os.path.basename(file_path), f, mime_type) }
-        data = { "messaging_product": "whatsapp", "type": "document" }
+        files = {'file': (os.path.basename(file_path), f, mime_type)}
+        data = {"messaging_product": "whatsapp"}
         upload_response = requests.post(url, headers=headers, files=files, data=data)
+    
+    if upload_response.status_code != 200:
+        print("Error uploading file:", upload_response.text)
+        return
+
     media_id = upload_response.json().get("id")
     if not media_id:
         return
+
     message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "document",
-        "document": { "id": media_id, "caption": "📄 Here is your converted PDF file." }
+        "messaging_product": "whatsapp", "to": to, "type": "document",
+        "document": {"id": media_id, "caption": caption}
     }
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
-
-# === NEW PDF/WORD/TEXT ROUTES ===
-
-@app.route('/pdf_to_word', methods=['POST'])
-def convert_pdf_to_word():
-    file = request.files['file']
-    if file.filename.endswith('.pdf'):
-        input_path = os.path.join("uploads", secure_filename(file.filename))
-        output_path = input_path.replace('.pdf', '.docx')
-        file.save(input_path)
-        converter = Converter(input_path)
-        converter.convert(output_path, start=0, end=None)
-        converter.close()
-        return f"PDF converted to Word successfully: {output_path}"
-    return "Please upload a valid PDF file."
-
-
-@app.route('/word_to_pdf', methods=['POST'])
-def convert_word_to_pdf():
-    file = request.files['file']
-    if file.filename.endswith('.docx'):
-        input_path = os.path.join("uploads", secure_filename(file.filename))
-        file.save(input_path)
-        convert(input_path)
-        output_path = input_path.replace('.docx', '.pdf')
-        return f"Word converted to PDF successfully: {output_path}"
-    return "Please upload a valid Word (.docx) file."
-
-
-@app.route('/pdf_to_text', methods=['POST'])
-def extract_text_from_pdf():
-    file = request.files['file']
-    if file.filename.endswith('.pdf'):
-        input_path = os.path.join("uploads", secure_filename(file.filename))
-        file.save(input_path)
-        extracted_text = extract_text_from_pdf_file(local_path)
-        return text if text else "No readable text found in PDF."
-    return "Please upload a valid PDF file."
-
 
 # === RUN ===
 if __name__ == '__main__':
