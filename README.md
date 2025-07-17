@@ -21,7 +21,7 @@ Convert files in multiple formats:
 - 📄 PDF ➡️ Text
 - 📄 Word (.docx) ➡️ PDF
 - 📝 Text ➡️ PDF
-- 📄 PDF ➡️ Word (.docx)
+- 📄 Text ➡️ Word (.docx)
 
 ### 🌍 5. Translator  
 Translate between:
@@ -66,24 +66,20 @@ This project uses:
 ### 1. Clone the Repository
 git clone https://github.com/yourusername/ai-buddy.git
 cd ai-buddy
-
 2. Create a .env File
 env
 Copy
 Edit
 HUGGINGFACE_API_KEY=your_huggingface_token
-
 3. Install Dependencies
 bash
 Copy
 Edit
 pip install -r requirements.txt
-
 4. Start the Flask Server
 bash
 Copy
 Edit
-
 python app.py
 🗂️ Folder Structure
 bash
@@ -100,6 +96,7 @@ ai-buddy/
 ├── user_data.json           # Stores user sessions
 ├── requirements.txt
 └── README.md
+
 💬 How It Works
 User sends a message like hi or start on WhatsApp.
 
