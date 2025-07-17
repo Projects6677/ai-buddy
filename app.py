@@ -25,6 +25,7 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY") # Using your OpenWeatherMap Key
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -156,11 +157,11 @@ def handle_text_message(user_text, sender_number, state):
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_ai":
-        response_text = ai_reply(user_text) # This now calls the live Grok function
+        response_text = ai_reply(user_text)
     elif state == "awaiting_translation":
         response_text = translate_text(user_text)
     elif state == "awaiting_weather":
-        response_text = get_weather(user_text)
+        response_text = get_weather(user_text) # This now calls the OpenWeatherMap function
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_text_to_pdf":
         pdf_path = convert_text_to_pdf(user_text)
@@ -205,7 +206,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🌍 Translator active!\n\n_Example: `en:Hello world`_"
         elif user_text == "6":
             user_sessions[sender_number] = "awaiting_weather"
-            response_text = "🏙️ Enter a city or location to get the current weather."
+            response_text = "🏙️ Enter a city to get the current weather."
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
@@ -222,33 +223,18 @@ def send_message(to, message):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
 
-# --- NEW: Live AI Reply Function ---
 def ai_reply(prompt):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured. This feature is disabled."
-
-    headers = {
-        "Authorization": f"Bearer {GROK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "llama3-8b-8192", # A popular and fast model on Groq
-        "messages": [
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": prompt}
-        ]
-    }
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    data = {"model": "llama3-8b-8192", "messages": [{"role": "system", "content": "You are a helpful AI assistant."}, {"role": "user", "content": prompt}]}
     try:
         response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=20)
         response.raise_for_status()
         result = response.json()
-        
         if "choices" in result and result["choices"]:
-            reply = result["choices"][0]["message"]["content"]
-            return reply.strip()
-        else:
-            return "❌ Grok API returned a valid but empty reply."
-
+            return result["choices"][0]["message"]["content"].strip()
+        return "❌ Grok API returned a valid but empty reply."
     except requests.exceptions.RequestException as e:
         print(f"Grok API request error: {e}")
         return "⚠️ Sorry, I couldn't connect to the AI service right now."
@@ -259,20 +245,14 @@ def ai_reply(prompt):
 def correct_grammar_with_grok(text):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured."
-
     api_url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROK_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "llama3-8b-8192",
         "messages": [
             {"role": "system", "content": "You are a grammar correction assistant. Correct the grammar of the user's text and only return the corrected text, without any explanation or preamble."},
             {"role": "user", "content": text}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 1024
+        ], "temperature": 0.7, "max_tokens": 1024
     }
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=20)
@@ -351,57 +331,55 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-def get_weather_emoji(code):
-    if code in [0, 1]: return "☀️"
-    if code == 2: return "⛅️"
-    if code == 3: return "☁️"
-    if code in [45, 48]: return "🌫️"
-    if code in [51, 53, 55, 56, 57]: return "🌦️"
-    if code in [61, 63, 65, 66, 67]: return "🌧️"
-    if code in [71, 73, 75, 77]: return "❄️"
-    if code in [80, 81, 82]: return "💧"
-    if code in [95, 96, 99]: return "⛈️"
-    return "🌡️"
-
-def get_weather(location):
+# --- NEW: Live Weather Function using OpenWeatherMap ---
+def get_weather(city):
+    if not OPENWEATHER_API_KEY:
+        return "❌ The OpenWeatherMap API key is not configured. This feature is disabled."
+    
+    base_url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": city,
+        "appid": OPENWEATHER_API_KEY,
+        "units": "metric"
+    }
+    
     try:
-        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=en&format=json"
-        geo_response = requests.get(geo_url)
-        geo_response.raise_for_status()
-        geo_data = geo_response.json()
-
-        if not geo_data.get("results"):
-            return f"⚠️ Couldn't find a location named '{location.title()}'. Please try being more specific."
-
-        result = geo_data["results"][0]
-        lat, lon = result["latitude"], result["longitude"]
-        name = result.get("name", "")
-        admin1 = result.get("admin1", "")
-        country = result.get("country", "")
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()
+        data = response.json()
         
-        location_parts = [part for part in [name, admin1, country] if part]
-        full_location = ", ".join(location_parts)
+        # --- Emoji Mapping ---
+        icon_code = data["weather"][0]["icon"]
+        emoji_map = {
+            "01": "☀️", "02": "⛅️", "03": "☁️", "04": "☁️",
+            "09": "🌧️", "10": "🌦️", "11": "⛈️", "13": "❄️", "50": "🌫️"
+        }
+        emoji = emoji_map.get(icon_code[:2], "🌡️")
 
-        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,wind_speed_10m"
-        weather_response = requests.get(weather_url)
-        weather_response.raise_for_status()
-        weather_data = weather_response.json()
+        # --- Data Extraction ---
+        description = data["weather"][0]["description"].title()
+        temp = data["main"]["temp"]
+        feels_like = data["main"]["feels_like"]
+        humidity = data["main"]["humidity"]
 
-        current = weather_data.get("current", {})
-        temp = current.get("temperature_2m")
-        wind = current.get("wind_speed_10m")
-        weather_code = current.get("weather_code")
-        emoji = get_weather_emoji(weather_code)
+        return (
+            f"{emoji} Weather in *{data['name']}*:\n\n"
+            f"*{description}*\n"
+            f"🌡️ Temperature: *{temp}°C* (Feels like *{feels_like}°C*)\n"
+            f"💧 Humidity: *{humidity}%*"
+        )
 
-        return f"{emoji} Weather in *{full_location}*:\n\n🌡️ Temperature: *{temp}°C*\n💨 Wind Speed: *{wind} km/h*"
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return f"⚠️ City not found: '{city.title()}'."
+        else:
+            print(f"Weather API HTTP error: {e}")
+            return "❌ Oops! A weather service error occurred."
+    except Exception as e:
+        print(f"Weather function error: {e}")
+        return "❌ An unexpected error occurred while fetching weather."
 
-    except requests.exceptions.RequestException as e:
-        print(f"Weather API error: {e}")
-        return "❌ Oops! I failed to fetch the weather data right now."
-    except (KeyError, IndexError) as e:
-        print(f"Weather data parsing error: {e}")
-        return "⚠️ I found the location, but couldn't get detailed weather for it."
-
+# --- Other conversion & utility functions ---
 def convert_text_to_pdf(text):
     pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
