@@ -1,14 +1,18 @@
+# requirements.txt
+
 flask
 requests
 apscheduler
 python-dateutil
 pytz
-pymupdf
-fpdf
-python-docx
-werkzeug
+grok-ai
 python-dotenv
+
+# PDF/Word/Image Conversion
+pymupdf
+fpdf2
 pdf2docx
 docx2pdf
-pytesseract
+Pillow
 pdf2image
+pytesseract
