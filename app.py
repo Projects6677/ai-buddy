@@ -191,7 +191,7 @@ def handle_text_message(user_text, sender_number, state):
     else:
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
-            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_\n- _Remind me that I have a meeting on August 1st at 10am_"
+            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_\n- _Remind me about the team meeting on August 1st at 10am_"
         elif user_text == "2":
             user_sessions[sender_number] = "awaiting_grammar"
             response_text = "✍️ Send me the sentence or paragraph you want me to correct."
@@ -266,37 +266,35 @@ def correct_grammar_with_grok(text):
 # --- NEW: More flexible reminder function ---
 def schedule_reminder(user_text, sender_number):
     try:
-        # Pre-process the user's text to isolate the core reminder
+        # Sanitize the input to handle different phrasing
         text_to_parse = user_text.lower()
         starters = ["remind me to ", "remind me that ", "remind me about "]
+        task_part = user_text
         for starter in starters:
             if text_to_parse.startswith(starter):
-                text_to_parse = text_to_parse[len(starter):]
+                task_part = user_text[len(starter):]
                 break
         
-        # Use fuzzy parsing to separate the task from the time
-        run_time, tokens = date_parser.parse(text_to_parse, fuzzy_with_tokens=True)
-        task = " ".join(tokens).strip()
+        # Use fuzzy parsing to extract the time and the task
+        run_time, Rtokens = date_parser.parse(task_part, fuzzy_with_tokens=True)
+        task = " ".join(Rtokens).strip()
+
+        # A common parsing error is including "on" or "at" at the end of the task
+        if task.endswith(" on") or task.endswith(" at"):
+            task = task[:-3].strip()
 
         if not task:
-            return "❌ I couldn't figure out the reminder task. Please be more specific."
+            return "❌ I couldn't figure out what you want to be reminded of. Please be more specific."
 
         # Make the time timezone-aware
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
         
-        # If the parsed time has no timezone, assume the user's local timezone
         if run_time.tzinfo is None:
             run_time = tz.localize(run_time)
 
-        # If the parsed time is in the past, move it to the next day
         if run_time < now:
-            # If the user specified a time but not a date, it might be for the next day
-            if run_time.date() == now.date():
-                 run_time += timedelta(days=1)
-            # If they specified a past date, that's ambiguous, but we'll assume next year
-            elif run_time.date() < now.date():
-                 run_time = run_time.replace(year=now.year + 1)
+            run_time += timedelta(days=1)
 
         reminder_message = f"⏰ *Reminder:* {task.capitalize()}"
         
@@ -306,10 +304,10 @@ def schedule_reminder(user_text, sender_number):
             id=f"{sender_number}-{task}-{run_time.timestamp()}",
             replace_existing=True
         )
-        return f"✅ Got it! I'll remind you about *'{task}'* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+        return f"✅ Got it! I'll remind you to *'{task}'* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
 
     except date_parser.ParserError:
-        return "❌ I couldn't understand the date or time for the reminder. Please try again."
+        return "❌ I couldn't understand the date or time for the reminder. Please try again with a clear date and time."
     except Exception as e:
         print(f"❌ Reminder scheduling error: {e}")
         return "❌ Sorry, I had an unexpected error setting that reminder."
