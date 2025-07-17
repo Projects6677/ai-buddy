@@ -2,7 +2,7 @@ from flask import Flask, request
 import requests
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
@@ -191,7 +191,7 @@ def handle_text_message(user_text, sender_number, state):
     else:
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
-            response_text = "🕒 What should I remind you about?\n\n_Example: Remind me to call Mom at 7pm_"
+            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_\n- _Remind me that I have a meeting on August 1st at 10am_"
         elif user_text == "2":
             user_sessions[sender_number] = "awaiting_grammar"
             response_text = "✍️ Send me the sentence or paragraph you want me to correct."
@@ -263,30 +263,57 @@ def correct_grammar_with_grok(text):
         print(f"Grok grammar error: {e}")
         return "❌ Sorry, the grammar correction service is unavailable."
 
+# --- NEW: More flexible reminder function ---
 def schedule_reminder(user_text, sender_number):
     try:
-        if " at " in user_text.lower():
-            parts = user_text.lower().split(" at ")
-            task = parts[0].replace("remind me to", "").strip()
-            time_string = parts[1].strip()
-        else:
-            return "❌ Could not set reminder. Please use the format: _Remind me to [task] at [time]_"
+        # Pre-process the user's text to isolate the core reminder
+        text_to_parse = user_text.lower()
+        starters = ["remind me to ", "remind me that ", "remind me about "]
+        for starter in starters:
+            if text_to_parse.startswith(starter):
+                text_to_parse = text_to_parse[len(starter):]
+                break
+        
+        # Use fuzzy parsing to separate the task from the time
+        run_time, tokens = date_parser.parse(text_to_parse, fuzzy_with_tokens=True)
+        task = " ".join(tokens).strip()
+
+        if not task:
+            return "❌ I couldn't figure out the reminder task. Please be more specific."
+
+        # Make the time timezone-aware
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
-        run_time = date_parser.parse(time_string, default=now)
+        
+        # If the parsed time has no timezone, assume the user's local timezone
+        if run_time.tzinfo is None:
+            run_time = tz.localize(run_time)
+
+        # If the parsed time is in the past, move it to the next day
         if run_time < now:
-            run_time = run_time.replace(day=run_time.day + 1)
+            # If the user specified a time but not a date, it might be for the next day
+            if run_time.date() == now.date():
+                 run_time += timedelta(days=1)
+            # If they specified a past date, that's ambiguous, but we'll assume next year
+            elif run_time.date() < now.date():
+                 run_time = run_time.replace(year=now.year + 1)
+
         reminder_message = f"⏰ *Reminder:* {task.capitalize()}"
+        
         scheduler.add_job(
             func=send_message, trigger='date', run_date=run_time,
             args=[sender_number, reminder_message],
             id=f"{sender_number}-{task}-{run_time.timestamp()}",
             replace_existing=True
         )
-        return f"✅ Reminder set for *{task}* at *{run_time.strftime('%I:%M %p')}*."
+        return f"✅ Got it! I'll remind you about *'{task}'* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+
+    except date_parser.ParserError:
+        return "❌ I couldn't understand the date or time for the reminder. Please try again."
     except Exception as e:
-        print(f"❌ Reminder error: {e}")
-        return "❌ Sorry, I had trouble setting that reminder. Please try again with a clearer time."
+        print(f"❌ Reminder scheduling error: {e}")
+        return "❌ Sorry, I had an unexpected error setting that reminder."
+
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
@@ -331,38 +358,25 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-# --- WEATHER FUNCTIONS (UPDATED) ---
 def get_weather(city):
     if not OPENWEATHER_API_KEY:
         return "❌ The OpenWeatherMap API key is not configured. This feature is disabled."
-    
     base_url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {
-        "q": city,
-        "appid": OPENWEATHER_API_KEY,
-        "units": "metric"
-    }
-    
+    params = {"q": city, "appid": OPENWEATHER_API_KEY, "units": "metric"}
     try:
         response = requests.get(base_url, params=params)
         response.raise_for_status()
         data = response.json()
-        
-        # --- Emoji Mapping ---
         icon_code = data["weather"][0]["icon"]
         emoji_map = {
             "01": "☀️", "02": "⛅️", "03": "☁️", "04": "☁️",
             "09": "🌧️", "10": "🌦️", "11": "⛈️", "13": "❄️", "50": "🌫️"
         }
         emoji = emoji_map.get(icon_code[:2], "🌡️")
-
-        # --- Data Extraction ---
         description = data["weather"][0]["description"].title()
         temp = data["main"]["temp"]
         feels_like = data["main"]["feels_like"]
         humidity = data["main"]["humidity"]
-
-        # --- Refined Output Formatting ---
         return (
             f"*{data['name']} Weather Report* {emoji}\n"
             "•----------------------------------•\n\n"
@@ -372,18 +386,15 @@ def get_weather(city):
             f"💧 *Humidity:* {humidity}%\n\n"
             "Stay safe! 🌦️"
         )
-
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 404:
             return f"⚠️ City not found: '{city.title()}'."
-        else:
-            print(f"Weather API HTTP error: {e}")
-            return "❌ Oops! A weather service error occurred."
+        else: print(f"Weather API HTTP error: {e}")
+        return "❌ Oops! A weather service error occurred."
     except Exception as e:
         print(f"Weather function error: {e}")
         return "❌ An unexpected error occurred while fetching weather."
 
-# --- Other conversion & utility functions ---
 def convert_text_to_pdf(text):
     pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
