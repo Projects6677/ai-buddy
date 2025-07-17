@@ -1,9 +1,4 @@
 from flask import Flask, request
-from grok_ai import correct_grammar_with_grok
-from ai import ai_reply
-from reminders import schedule_reminder
-from translator_module import translate_text
-from weather import get_weather
 import requests
 import os
 import time
@@ -12,33 +7,47 @@ import json
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
-from docx2pdf import convert
 import fitz  # PyMuPDF
 import pytesseract
+
+# --- Mock functions for modules you might have ---
+# If you have these files, you can remove these mock functions
+def correct_grammar_with_grok(text): return f"Grammar checked for: {text}"
+def ai_reply(text): return f"AI reply for: {text}"
+def schedule_reminder(text, sender): return "Reminder has been set."
+def translate_text(text): return f"Translated text for: {text}"
+def get_weather(city): return f"The weather in {city} is sunny."
+# --- End of mock functions ---
+
 
 app = Flask(__name__)
 
 # === CONFIG ===
-VERIFY_TOKEN = "ranga123"
-ACCESS_TOKEN = "EAAXPyMWrMskBO4tAwKG3gcefN1lJCffFhdVmx912RG3wfZAmllzb3k1jOXdZA2snfaJo5NoLHYGKtBIZAfH5FQWncQNgKyumjA0rahXCA3KKwJo4X4HJkBBPqguNWD24hhQ9aBz18iYaMPIXHvi777hXOZC8bsUt5qrrZAPtgSR37Qwv2R1UPvoE6qDdBDVHeqwZDZD"
-PHONE_NUMBER_ID = "740671045777701"
+# It's highly recommended to use Environment Variables on Render for these
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
+PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
+
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
-# Create an 'uploads' directory for temporary files
+# Create an 'uploads' directory for temporary files if it doesn't exist
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# === JSON Memory ===
+# === JSON MEMORY ===
 def load_user_data():
     if not os.path.exists(USER_DATA_FILE):
         return {}
-    with open(USER_DATA_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(USER_DATA_FILE, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
 
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=4)
 
 # === ROUTES ===
 @app.route('/')
@@ -79,10 +88,10 @@ def download_media_from_whatsapp(media_id):
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("\n🚀 Received message:", data)
+    print("\n🚀 Received message:", json.dumps(data, indent=2))
 
     try:
-        entry = data["entry"][0]["changes"][0]["value"]
+        entry = data.get("entry", [])[0].get("changes", [])[0].get("value", {})
         if "messages" not in entry or not entry["messages"]:
             return "OK", 200
 
@@ -107,31 +116,6 @@ def webhook():
                     send_message(sender_number, "❌ Sorry, I couldn't process your file.")
                 return "OK", 200
             
-            # ✅ --- START OF FIX ---
-            elif state == "awaiting_docx_to_pdf":
-                send_message(sender_number, "✅ Received Word file. Converting to PDF...")
-                downloaded_path = download_media_from_whatsapp(media_id)
-                if downloaded_path:
-                    output_pdf_path = downloaded_path + ".pdf"
-                    try:
-                        # Attempt the conversion
-                        convert(downloaded_path, output_pdf_path)
-                        # If successful, send the file back
-                        send_file_to_user(sender_number, output_pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
-                    except Exception as e:
-                        # If conversion fails, send a helpful error message
-                        print(f"❌ DOCX to PDF conversion failed: {e}")
-                        send_message(sender_number, "❌ Sorry, an error occurred during conversion.\n\n*Note:* This feature requires LibreOffice (on Linux) or MS Word (on Windows) to be installed on the server.")
-                    finally:
-                        # Clean up temp files regardless of success or failure
-                        if os.path.exists(downloaded_path): os.remove(downloaded_path)
-                        if os.path.exists(output_pdf_path): os.remove(output_pdf_path)
-                        user_sessions.pop(sender_number, None) # Reset state
-                else:
-                    send_message(sender_number, "❌ Sorry, I couldn't download your file.")
-                return "OK", 200
-            # ✅ --- END OF FIX ---
-
             elif state == "awaiting_pdf_to_docx":
                 send_message(sender_number, "✅ Received PDF. Converting to Word...")
                 downloaded_path = download_media_from_whatsapp(media_id)
@@ -156,7 +140,9 @@ def webhook():
         if message.get("type") == "text":
             user_text = message["text"]["body"].strip()
         else:
-            user_text = "[Unsupported message type]"
+            # This handles any other message type like audio, stickers, etc.
+            send_message(sender_number, "I can only process text and documents at the moment.")
+            return "OK", 200
 
         user_data = load_user_data()
         response_text = ""
@@ -206,16 +192,13 @@ def webhook():
                 user_sessions[sender_number] = "awaiting_pdf_to_text"
                 response_text = "📥 Please upload the PDF you want to convert to text."
             elif user_text == "2":
-                user_sessions[sender_number] = "awaiting_docx_to_pdf"
-                response_text = "📥 Please upload the Word (.docx) file you want to convert to PDF."
-            elif user_text == "3":
                 user_sessions[sender_number] = "awaiting_text"
                 response_text = "📝 Please send the text you want to convert into a PDF."
-            elif user_text == "4":
+            elif user_text == "3":
                 user_sessions[sender_number] = "awaiting_pdf_to_docx"
                 response_text = "📥 Please upload the PDF to convert into Word."
             else:
-                response_text = "❓ Please send 1, 2, 3 or 4 to choose a conversion type."
+                response_text = "❓ Please send 1, 2, or 3 to choose a conversion type."
 
         elif state == "awaiting_text":
             send_progress(sender_number)
@@ -233,7 +216,7 @@ def webhook():
             response_text = get_weather(user_text)
             user_sessions.pop(sender_number, None)
 
-        else:
+        else: # Main menu options
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
                 response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
@@ -246,12 +229,11 @@ def webhook():
             elif user_text == "4":
                 user_sessions[sender_number] = "awaiting_conversion_choice"
                 response_text = (
-                    "📁 *File/Text Conversion Menu*\n"
+                    "📁 *File/Text Conversion Menu*\n\n"
                     "1️⃣ PDF ➡️ Text\n"
-                    "2️⃣ Word ➡️ PDF\n"
-                    "3️⃣ Text ➡️ PDF\n"
-                    "4️⃣ PDF ➡️ Word\n\n"
-                    "Type 1–4 to choose an option ✅"
+                    "2️⃣ Text ➡️ PDF\n"
+                    "3️⃣ PDF ➡️ Word\n\n"
+                    "Type 1–3 to choose an option ✅"
                 )
             elif user_text == "5":
                 user_sessions[sender_number] = "awaiting_translation"
@@ -266,7 +248,7 @@ def webhook():
             send_message(sender_number, response_text)
 
     except Exception as e:
-        print("❌ ERROR:", e)
+        print(f"❌ ERROR: {e}")
 
     return "OK", 200
 
@@ -275,7 +257,10 @@ def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
     data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
-    requests.post(url, headers=headers, json=data)
+    try:
+        requests.post(url, headers=headers, json=data, timeout=10)
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send message: {e}")
 
 def send_progress(to):
     send_message(to, "🔄 Loading...\n[█████-----] 50%")
@@ -289,19 +274,37 @@ def send_startup_effect(to):
 
 def send_welcome_message(to, name=None):
     greeting = f"🤖 *Welcome back, {name}!*" if name else "🤖 *Welcome to AI Buddy!*"
-    msg = (
-        f"{greeting}\n\n"
+    menu_text = (
         "What can I help you with today?\n\n"
         "🧠 *1. Reminder* ⏰ — I’ll remember stuff so you don’t have to\n"
         "📖 *2. Grammar Fix* ✍️ — Send your messy sentences, I’ll clean ‘em\n"
         "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
-        "📁 *4. File/Text Conversion* 📄 — PDF ↔ Word ↔ Text\n"
+        "📁 *4. File/Text Conversion* 📄 — PDF ↔ Text ↔ Word\n"
         "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
         "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
         "📌 *Reply with a number (1–6) to begin*\n"
         "🔁 *Type 'menu' any time to come back here*"
     )
+    msg = f"{greeting}\n\n{menu_text}"
     send_message(to, msg)
+
+def get_main_menu(user_number=None):
+    icon = get_time_based_icon()
+    user_data = load_user_data()
+    name = user_data.get(user_number, {}).get("name", "")
+    name_line = f"👤 *User:* {name}\n" if name else ""
+    menu_text = (
+        "What can I help you with today?\n\n"
+        "🧠 *1. Reminder* ⏰ — I’ll remember stuff so you don’t have to\n"
+        "📖 *2. Grammar Fix* ✍️ — Send your messy sentences, I’ll clean ‘em\n"
+        "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
+        "📁 *4. File/Text Conversion* 📄 — PDF ↔ Text ↔ Word\n"
+        "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
+        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
+        "📌 *Reply with a number (1–6) to begin*\n"
+        "🔁 *Type 'menu' any time to come back here*"
+    )
+    return f"{icon} *AI-Buddy Main Menu* {icon}\n{name_line}\n{menu_text}"
 
 def get_time_based_icon():
     hour = datetime.now().hour
@@ -310,30 +313,14 @@ def get_time_based_icon():
     elif 18 <= hour < 21: return "🌇"
     else: return "🌙"
 
-def get_main_menu(user_number=None):
-    icon = get_time_based_icon()
-    name = load_user_data().get(user_number, {}).get("name", "")
-    name_line = f"👤 *User:* {name}\n" if name else ""
-    return (
-        f"{icon} *AI-Buddy Main Menu* {icon}\n"
-        f"{name_line}\n"
-        "What can I help you with today?\n\n"
-        "🧠 *1. Reminder* ⏰ — I’ll remember stuff so you don’t have to\n"
-        "📖 *2. Grammar Fix* ✍️ — Send your messy sentences, I’ll clean ‘em\n"
-        "🤖 *3. Ask Me Anything* 💬 — From doubts to jokes, I gotchu\n"
-        "📁 *4. File/Text Conversion* 📄 — PDF ↔ Word ↔ Text\n"
-        "🌍 *5. Translator* 🔁 — Type in `en:`, `hi:` etc., I’ll translate\n"
-        "⛅ *6. Weather Bot* ☁️ — City name = instant forecast\n\n"
-        "📌 *Reply with a number (1–6) to begin*\n"
-        "🔁 *Type 'menu' any time to come back here*"
-    )
-
 def convert_text_to_pdf(text):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, text)
+    # Handle potential encoding issues by encoding to latin-1
+    text_encoded = text.encode('latin-1', 'replace').decode('latin-1')
+    pdf.multi_cell(0, 10, text_encoded)
     filename = secure_filename(f"converted_{int(time.time())}.pdf")
     file_path = os.path.join("uploads", filename)
     pdf.output(file_path)
@@ -341,11 +328,8 @@ def convert_text_to_pdf(text):
 
 def extract_text_from_pdf_file(file_path):
     try:
-        doc = fitz.open(file_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        doc.close()
+        with fitz.open(file_path) as doc:
+            text = "".join(page.get_text() for page in doc)
         return text.strip()
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}")
@@ -360,7 +344,7 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
         upload_response = requests.post(url, headers=headers, files=files, data=data)
     
     if upload_response.status_code != 200:
-        print("Error uploading file:", upload_response.text)
+        print(f"Error uploading file: {upload_response.text}")
         return
 
     media_id = upload_response.json().get("id")
@@ -374,7 +358,8 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     }
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-# === RUN ===
+# === RUN APP ===
+# This block allows you to run the app with 'python app.py'
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
