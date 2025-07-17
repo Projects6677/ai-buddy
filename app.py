@@ -84,19 +84,16 @@ def webhook():
     try:
         entry = data["entry"][0]["changes"][0]["value"]
         if "messages" not in entry or not entry["messages"]:
-            return "No user message to process", 200
+            return "OK", 200
 
         message = entry["messages"][0]
         sender_number = message["from"]
         state = user_sessions.get(sender_number)
 
-        # ✅ --- FULLY IMPLEMENTED FILE HANDLING ---
-        # This block now handles all incoming document types based on user state.
         if message.get("type") == "document":
             media_id = message["document"]["id"]
             downloaded_path = None
             
-            # --- Case 1: PDF to Text ---
             if state == "awaiting_pdf_to_text":
                 send_message(sender_number, "✅ Received PDF. Extracting text...")
                 downloaded_path = download_media_from_whatsapp(media_id)
@@ -104,28 +101,37 @@ def webhook():
                     extracted_text = extract_text_from_pdf_file(downloaded_path)
                     response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
                     send_message(sender_number, response)
-                    os.remove(downloaded_path) # Cleanup
-                    user_sessions.pop(sender_number, None) # Reset state
+                    os.remove(downloaded_path)
+                    user_sessions.pop(sender_number, None)
                 else:
                     send_message(sender_number, "❌ Sorry, I couldn't process your file.")
                 return "OK", 200
             
-            # --- Case 2: Word to PDF ---
+            # ✅ --- START OF FIX ---
             elif state == "awaiting_docx_to_pdf":
                 send_message(sender_number, "✅ Received Word file. Converting to PDF...")
                 downloaded_path = download_media_from_whatsapp(media_id)
                 if downloaded_path:
                     output_pdf_path = downloaded_path + ".pdf"
-                    convert(downloaded_path, output_pdf_path) # Perform conversion
-                    send_file_to_user(sender_number, output_pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
-                    os.remove(downloaded_path) # Cleanup
-                    os.remove(output_pdf_path) # Cleanup
-                    user_sessions.pop(sender_number, None) # Reset state
+                    try:
+                        # Attempt the conversion
+                        convert(downloaded_path, output_pdf_path)
+                        # If successful, send the file back
+                        send_file_to_user(sender_number, output_pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
+                    except Exception as e:
+                        # If conversion fails, send a helpful error message
+                        print(f"❌ DOCX to PDF conversion failed: {e}")
+                        send_message(sender_number, "❌ Sorry, an error occurred during conversion.\n\n*Note:* This feature requires LibreOffice (on Linux) or MS Word (on Windows) to be installed on the server.")
+                    finally:
+                        # Clean up temp files regardless of success or failure
+                        if os.path.exists(downloaded_path): os.remove(downloaded_path)
+                        if os.path.exists(output_pdf_path): os.remove(output_pdf_path)
+                        user_sessions.pop(sender_number, None) # Reset state
                 else:
-                    send_message(sender_number, "❌ Sorry, I couldn't process your file.")
+                    send_message(sender_number, "❌ Sorry, I couldn't download your file.")
                 return "OK", 200
+            # ✅ --- END OF FIX ---
 
-            # --- Case 3: PDF to Word ---
             elif state == "awaiting_pdf_to_docx":
                 send_message(sender_number, "✅ Received PDF. Converting to Word...")
                 downloaded_path = download_media_from_whatsapp(media_id)
@@ -135,14 +141,13 @@ def webhook():
                     cv.convert(output_docx_path, start=0, end=None)
                     cv.close()
                     send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
-                    os.remove(downloaded_path) # Cleanup
-                    os.remove(output_docx_path) # Cleanup
-                    user_sessions.pop(sender_number, None) # Reset state
+                    os.remove(downloaded_path)
+                    os.remove(output_docx_path)
+                    user_sessions.pop(sender_number, None)
                 else:
                     send_message(sender_number, "❌ Sorry, I couldn't process your file.")
                 return "OK", 200
             
-            # --- Default case for unexpected files ---
             else:
                 send_message(sender_number, "I received a file, but I wasn't expecting one. Please select an option from the menu first.")
                 return "OK", 200
@@ -197,7 +202,6 @@ def webhook():
                 response_text = ai_reply(user_text)
 
         elif state == "awaiting_conversion_choice":
-            # ✅ All options now set the correct state
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_pdf_to_text"
                 response_text = "📥 Please upload the PDF you want to convert to text."
@@ -213,11 +217,11 @@ def webhook():
             else:
                 response_text = "❓ Please send 1, 2, 3 or 4 to choose a conversion type."
 
-        elif state == "awaiting_text": # This is the working Text-to-PDF
+        elif state == "awaiting_text":
             send_progress(sender_number)
             pdf_path = convert_text_to_pdf(user_text)
             send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
-            os.remove(pdf_path) # Clean up the temp file
+            os.remove(pdf_path)
             user_sessions.pop(sender_number, None)
 
         elif state == "awaiting_translation":
@@ -229,7 +233,7 @@ def webhook():
             response_text = get_weather(user_text)
             user_sessions.pop(sender_number, None)
 
-        else: # Main menu options
+        else:
             if user_text == "1":
                 user_sessions[sender_number] = "awaiting_reminder"
                 response_text = "🕒 Please type your reminder like:\nRemind me to [task] at [time]"
