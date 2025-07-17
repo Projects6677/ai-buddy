@@ -66,20 +66,24 @@ This project uses:
 ### 1. Clone the Repository
 git clone https://github.com/yourusername/ai-buddy.git
 cd ai-buddy
+
 2. Create a .env File
 env
 Copy
 Edit
 HUGGINGFACE_API_KEY=your_huggingface_token
+
 3. Install Dependencies
 bash
 Copy
 Edit
 pip install -r requirements.txt
+
 4. Start the Flask Server
 bash
 Copy
 Edit
+
 python app.py
 🗂️ Folder Structure
 bash
