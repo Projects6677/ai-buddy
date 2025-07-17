@@ -11,10 +11,14 @@ import fitz  # PyMuPDF
 import pytesseract
 from docx import Document
 
-# --- Mock functions for modules you might have ---
+# --- Imports for the Reminder feature ---
+from apscheduler.schedulers.background import BackgroundScheduler
+from dateutil import parser as date_parser
+import pytz
+
+# --- Mock functions for other modules ---
 def correct_grammar_with_grok(text): return f"Grammar checked for: `{text}`"
 def ai_reply(text): return f"🤖 Here's what I think about `{text}`..."
-def schedule_reminder(text, sender): return "✅ Reminder has been set!"
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 def get_weather(city): return f"The weather in {city} is currently sunny. ☀️"
 # --- End of mock functions ---
@@ -29,6 +33,12 @@ PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
+
+# --- Initialize the Scheduler ---
+# Using the timezone from your code
+scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
+scheduler.start()
+
 
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
@@ -78,35 +88,21 @@ def download_media_from_whatsapp(media_id):
 def webhook():
     data = request.get_json()
     print("\n🚀 Received message:", json.dumps(data, indent=2))
-
     try:
         entry = data.get("entry", [])[0].get("changes", [])[0].get("value", {})
         if "messages" not in entry or not entry["messages"]: return "OK", 200
-
         message = entry["messages"][0]
         sender_number = message["from"]
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
-
-        # --- HANDLE DOCUMENT MESSAGES ---
         if msg_type == "document":
             handle_document_message(message, sender_number, state)
-            return "OK", 200
-        
-        # --- HANDLE INTERACTIVE REPLIES (FROM LISTS/BUTTONS) ---
         elif msg_type == "interactive":
             handle_interactive_reply(message, sender_number)
-            return "OK", 200
-
-        # --- HANDLE TEXT MESSAGES ---
         elif msg_type == "text":
             handle_text_message(message, sender_number, state)
-            return "OK", 200
-        
-        else: # Handle other message types like audio, stickers, etc.
+        else:
             send_message(sender_number, "🤔 Sorry, I can only process text and documents at the moment.")
-            return "OK", 200
-
     except Exception as e:
         print(f"❌ Unhandled Error: {e}")
     return "OK", 200
@@ -119,7 +115,6 @@ def handle_document_message(message, sender_number, state):
     if not downloaded_path:
         send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
         return
-
     if state == "awaiting_pdf_to_text":
         extracted_text = extract_text_from_pdf_file(downloaded_path)
         response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
@@ -133,14 +128,12 @@ def handle_document_message(message, sender_number, state):
         if os.path.exists(output_docx_path): os.remove(output_docx_path)
     else:
         send_message(sender_number, "I received a file, but I wasn't expecting one. Try the menu first!")
-
     if os.path.exists(downloaded_path): os.remove(downloaded_path)
     user_sessions.pop(sender_number, None)
 
 def handle_interactive_reply(message, sender_number):
     interactive_type = message["interactive"]["type"]
     response_text = ""
-    
     if interactive_type == "list_reply":
         reply_id = message["interactive"]["list_reply"]["id"]
         if reply_id == "menu_reminder":
@@ -160,7 +153,6 @@ def handle_interactive_reply(message, sender_number):
         elif reply_id == "menu_weather":
             user_sessions[sender_number] = "awaiting_weather"
             response_text = "🏙️ Which city's weather would you like to know?"
-    
     elif interactive_type == "button_reply":
         reply_id = message["interactive"]["button_reply"]["id"]
         if reply_id == "conv_pdf_to_text":
@@ -175,7 +167,6 @@ def handle_interactive_reply(message, sender_number):
         elif reply_id == "conv_text_to_word":
             user_sessions[sender_number] = "awaiting_text_to_word"
             response_text = "📝 Please send the text you want to convert into a Word document."
-            
     if response_text:
         send_message(sender_number, response_text)
 
@@ -185,7 +176,7 @@ def handle_text_message(message, sender_number, state):
     response_text = ""
     
     if user_text.lower() in ["hi", "hello", "hey", "start", "menu", "help", "options", "0"]:
-        user_sessions.pop(sender_number, None) # Clear any previous state
+        user_sessions.pop(sender_number, None)
         name = user_data.get(sender_number, {}).get("name")
         if not name:
             response_text = "👋 Hi there! To personalize your experience, what should I call you?"
@@ -205,17 +196,17 @@ def handle_text_message(message, sender_number, state):
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number)
         user_sessions.pop(sender_number, None)
+
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_ai":
-        response_text = ai_reply(user_text) # Stays in AI mode
+        response_text = ai_reply(user_text)
     elif state == "awaiting_translation":
-        response_text = translate_text(user_text) # Stays in translate mode
+        response_text = translate_text(user_text)
     elif state == "awaiting_weather":
         response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
-        
     elif state == "awaiting_text_to_pdf":
         pdf_path = convert_text_to_pdf(user_text)
         send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
@@ -232,7 +223,7 @@ def handle_text_message(message, sender_number, state):
     if response_text:
         send_message(sender_number, response_text)
 
-# === UI & HELPER FUNCTIONS ===
+# === UI, HELPERS, & REMINDER LOGIC ===
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -241,6 +232,42 @@ def send_message(to, message):
         requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
+
+# --- NEW: Fully functional reminder logic inspired by your code ---
+def schedule_reminder(user_text, sender_number):
+    try:
+        # Split the message to find the task and the time
+        parts = user_text.lower().split("remind me to")[1].strip().split(" at ")
+        task = parts[0].strip()
+        time_string = parts[1].strip()
+
+        # Use dateutil.parser to figure out the datetime
+        tz = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(tz)
+        run_time = date_parser.parse(time_string, default=now)
+
+        # If the parsed time is in the past, assume it's for the next day
+        if run_time < now:
+            run_time = run_time.replace(day=run_time.day + 1)
+
+        # The message to be sent when the reminder is due
+        reminder_message = f"⏰ *Reminder:* {task.capitalize()}"
+
+        # Add the job to the scheduler
+        scheduler.add_job(
+            func=send_message,
+            trigger='date',
+            run_date=run_time,
+            args=[sender_number, reminder_message],
+            id=f"{sender_number}-{task}-{run_time.timestamp()}", # A unique ID for the job
+            replace_existing=True
+        )
+
+        return f"✅ Reminder set for *{task}* at *{run_time.strftime('%I:%M %p')}*."
+
+    except Exception as e:
+        print(f"❌ Reminder error: {e}")
+        return "❌ Could not set reminder. Please use the format: _Remind me to [task] at [time]_"
 
 def send_interactive_menu(to, name):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
@@ -252,9 +279,7 @@ def send_interactive_menu(to, name):
             "header": {"type": "text", "text": f"👋 Welcome, {name}!"},
             "body": {"text": "What can I help you with today? Choose an option below."},
             "footer": {"text": "AI Buddy"},
-            "action": {
-                "button": "View Options",
-                "sections": [
+            "action": { "button": "View Options", "sections": [
                     { "title": "Productivity", "rows": [
                         {"id": "menu_reminder", "title": "⏰ Set a Reminder"},
                         {"id": "menu_grammar", "title": "✍️ Fix Grammar"},
@@ -277,16 +302,35 @@ def send_conversion_menu(to):
             "action": { "buttons": [
                     {"type": "reply", "reply": {"id": "conv_pdf_to_text", "title": "PDF ➡️ Text"}},
                     {"type": "reply", "reply": {"id": "conv_text_to_pdf", "title": "Text ➡️ PDF"}},
-                    {"type": "reply", "reply": {"id": "conv_pdf_to_docx", "title": "PDF ➡️ Word"}}
+                    {"type": "reply", "reply": {"id": "conv_pdf_to_docx", "title": "PDF ➡️ Word"}},
                 ]}}}
-    # Note: Button messages support up to 3 buttons. For 4, a list is better.
-    # The Text to Word option can be in a second message or the list can be redesigned.
-    # For now, keeping it to 3 as per WhatsApp's most common button format.
     requests.post(url, headers=headers, json=payload)
     time.sleep(1)
-    send_message(to, "For `Text ➡️ Word`, please choose the main *File Conversion* option again and I can guide you from there if needed, or simply send the text now and I will set the state appropriately.")
-    user_sessions[to] = "awaiting_conversion_choice_part_2" # A way to handle the 4th button
+    send_message(to, "For `Text ➡️ Word`, please send me the text you want to convert.")
+    user_sessions[to] = "awaiting_text_to_word"
+
+def convert_text_to_pdf(text):
+    pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    text_encoded = text.encode('latin-1', 'replace').decode('latin-1')
+    pdf.multi_cell(0, 10, text_encoded)
+    filename = secure_filename(f"converted_{int(time.time())}.pdf")
+    file_path = os.path.join("uploads", filename)
+    pdf.output(file_path); return file_path
     
+def convert_text_to_word(text):
+    document = Document(); document.add_paragraph(text)
+    filename = secure_filename(f"converted_{int(time.time())}.docx")
+    file_path = os.path.join("uploads", filename)
+    document.save(file_path); return file_path
+
+def extract_text_from_pdf_file(file_path):
+    try:
+        with fitz.open(file_path) as doc: text = "".join(page.get_text() for page in doc)
+        return text.strip()
+    except Exception as e:
+        print(f"❌ Error extracting PDF text: {e}"); return ""
+
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
@@ -299,39 +343,8 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     media_id = upload_response.json().get("id")
     if not media_id: return
     message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    payload = {
-        "messaging_product": "whatsapp", "to": to, "type": "document",
-        "document": {"id": media_id, "caption": caption}}
+    payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
-
-# --- Conversion & Utility Functions ---
-def convert_text_to_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    text_encoded = text.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 10, text_encoded)
-    filename = secure_filename(f"converted_{int(time.time())}.pdf")
-    file_path = os.path.join("uploads", filename)
-    pdf.output(file_path)
-    return file_path
-    
-def convert_text_to_word(text):
-    document = Document()
-    document.add_paragraph(text)
-    filename = secure_filename(f"converted_{int(time.time())}.docx")
-    file_path = os.path.join("uploads", filename)
-    document.save(file_path)
-    return file_path
-
-def extract_text_from_pdf_file(file_path):
-    try:
-        with fitz.open(file_path) as doc: text = "".join(page.get_text() for page in doc)
-        return text.strip()
-    except Exception as e:
-        print(f"❌ Error extracting PDF text: {e}")
-        return ""
 
 # === RUN APP ===
 if __name__ == '__main__':
