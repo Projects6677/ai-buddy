@@ -9,9 +9,9 @@ from werkzeug.utils import secure_filename
 from pdf2docx import Converter
 import fitz  # PyMuPDF
 import pytesseract
+from docx import Document # Import for creating Word docs
 
 # --- Mock functions for modules you might have ---
-# If you have these files, you can remove these mock functions
 def correct_grammar_with_grok(text): return f"Grammar checked for: {text}"
 def ai_reply(text): return f"AI reply for: {text}"
 def schedule_reminder(text, sender): return "Reminder has been set."
@@ -23,7 +23,6 @@ def get_weather(city): return f"The weather in {city} is sunny."
 app = Flask(__name__)
 
 # === CONFIG ===
-# It's highly recommended to use Environment Variables on Render for these
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
@@ -31,7 +30,6 @@ PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
-# Create an 'uploads' directory for temporary files if it doesn't exist
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
@@ -140,7 +138,6 @@ def webhook():
         if message.get("type") == "text":
             user_text = message["text"]["body"].strip()
         else:
-            # This handles any other message type like audio, stickers, etc.
             send_message(sender_number, "I can only process text and documents at the moment.")
             return "OK", 200
 
@@ -192,19 +189,29 @@ def webhook():
                 user_sessions[sender_number] = "awaiting_pdf_to_text"
                 response_text = "📥 Please upload the PDF you want to convert to text."
             elif user_text == "2":
-                user_sessions[sender_number] = "awaiting_text"
+                user_sessions[sender_number] = "awaiting_text_to_pdf"
                 response_text = "📝 Please send the text you want to convert into a PDF."
             elif user_text == "3":
                 user_sessions[sender_number] = "awaiting_pdf_to_docx"
                 response_text = "📥 Please upload the PDF to convert into Word."
+            elif user_text == "4":
+                user_sessions[sender_number] = "awaiting_text_to_word"
+                response_text = "📝 Please send the text you want to convert into a Word document."
             else:
-                response_text = "❓ Please send 1, 2, or 3 to choose a conversion type."
+                response_text = "❓ Please send 1, 2, 3 or 4 to choose a conversion type."
 
-        elif state == "awaiting_text":
+        elif state == "awaiting_text_to_pdf":
             send_progress(sender_number)
             pdf_path = convert_text_to_pdf(user_text)
             send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
             os.remove(pdf_path)
+            user_sessions.pop(sender_number, None)
+        
+        elif state == "awaiting_text_to_word":
+            send_progress(sender_number)
+            docx_path = convert_text_to_word(user_text)
+            send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+            os.remove(docx_path)
             user_sessions.pop(sender_number, None)
 
         elif state == "awaiting_translation":
@@ -232,8 +239,9 @@ def webhook():
                     "📁 *File/Text Conversion Menu*\n\n"
                     "1️⃣ PDF ➡️ Text\n"
                     "2️⃣ Text ➡️ PDF\n"
-                    "3️⃣ PDF ➡️ Word\n\n"
-                    "Type 1–3 to choose an option ✅"
+                    "3️⃣ PDF ➡️ Word\n"
+                    "4️⃣ Text ➡️ Word\n\n"
+                    "Type 1–4 to choose an option ✅"
                 )
             elif user_text == "5":
                 user_sessions[sender_number] = "awaiting_translation"
@@ -318,12 +326,19 @@ def convert_text_to_pdf(text):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
-    # Handle potential encoding issues by encoding to latin-1
     text_encoded = text.encode('latin-1', 'replace').decode('latin-1')
     pdf.multi_cell(0, 10, text_encoded)
     filename = secure_filename(f"converted_{int(time.time())}.pdf")
     file_path = os.path.join("uploads", filename)
     pdf.output(file_path)
+    return file_path
+    
+def convert_text_to_word(text):
+    document = Document()
+    document.add_paragraph(text)
+    filename = secure_filename(f"converted_{int(time.time())}.docx")
+    file_path = os.path.join("uploads", filename)
+    document.save(file_path)
     return file_path
 
 def extract_text_from_pdf_file(file_path):
@@ -359,7 +374,6 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
 # === RUN APP ===
-# This block allows you to run the app with 'python app.py'
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
