@@ -5,7 +5,7 @@ requests
 apscheduler
 python-dateutil
 pytz
-grok-ai
+grok
 python-dotenv
 
 # PDF/Word/Image Conversion
