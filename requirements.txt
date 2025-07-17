@@ -12,4 +12,3 @@ pdf2docx
 docx2pdf
 pytesseract
 pdf2image
-gunicorn
