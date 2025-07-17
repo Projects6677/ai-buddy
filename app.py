@@ -1,16 +1,3 @@
-Of course. Those are excellent choices that will significantly improve the user experience.
-
-I've updated the `app.py` code to replace the old number-based menus with interactive, clickable lists and buttons. I've also improved the text formatting and added more emojis for a friendlier feel.
-
-The biggest change is that the bot now sends an interactive menu. The code has been updated to handle the user's clicks from this menu instead of waiting for them to type a number.
-
------
-
-### \#\# Updated `app.py` Code
-
-Here is the complete `app.py` file with all the requested UI improvements.
-
-```python
 from flask import Flask, request
 import requests
 import os
@@ -350,4 +337,3 @@ def extract_text_from_pdf_file(file_path):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-```
