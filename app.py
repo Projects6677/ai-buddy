@@ -25,7 +25,7 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY") # Using your OpenWeatherMap Key
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -161,7 +161,7 @@ def handle_text_message(user_text, sender_number, state):
     elif state == "awaiting_translation":
         response_text = translate_text(user_text)
     elif state == "awaiting_weather":
-        response_text = get_weather(user_text) # This now calls the OpenWeatherMap function
+        response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_text_to_pdf":
         pdf_path = convert_text_to_pdf(user_text)
@@ -206,7 +206,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🌍 Translator active!\n\n_Example: `en:Hello world`_"
         elif user_text == "6":
             user_sessions[sender_number] = "awaiting_weather"
-            response_text = "🏙️ Enter a city to get the current weather."
+            response_text = "🏙️ Enter a city or location to get the current weather."
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
@@ -331,7 +331,7 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-# --- NEW: Live Weather Function using OpenWeatherMap ---
+# --- WEATHER FUNCTIONS (UPDATED) ---
 def get_weather(city):
     if not OPENWEATHER_API_KEY:
         return "❌ The OpenWeatherMap API key is not configured. This feature is disabled."
@@ -362,11 +362,15 @@ def get_weather(city):
         feels_like = data["main"]["feels_like"]
         humidity = data["main"]["humidity"]
 
+        # --- Refined Output Formatting ---
         return (
-            f"{emoji} Weather in *{data['name']}*:\n\n"
-            f"*{description}*\n"
-            f"🌡️ Temperature: *{temp}°C* (Feels like *{feels_like}°C*)\n"
-            f"💧 Humidity: *{humidity}%*"
+            f"*{data['name']} Weather Report* {emoji}\n"
+            "•----------------------------------•\n\n"
+            f"*{description}*\n\n"
+            f"🌡️ *Temperature:* {temp}°C\n"
+            f"   _Feels like: {feels_like}°C_\n\n"
+            f"💧 *Humidity:* {humidity}%\n\n"
+            "Stay safe! 🌦️"
         )
 
     except requests.exceptions.HTTPError as e:
