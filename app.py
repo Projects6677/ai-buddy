@@ -13,9 +13,7 @@ from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 
-# --- Mock functions for modules ---
-def correct_grammar_with_grok(text): return f"Grammar checked for: `{text}`"
-def ai_reply(text): return f"🤖 Here's what I think about `{text}`..."
+# --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 # --- End of mock functions ---
 
@@ -26,6 +24,7 @@ app = Flask(__name__)
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
+GROK_API_KEY = os.environ.get("GROK_API_KEY")
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -157,7 +156,7 @@ def handle_text_message(user_text, sender_number, state):
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_ai":
-        response_text = ai_reply(user_text)
+        response_text = ai_reply(user_text) # This now calls the live Grok function
     elif state == "awaiting_translation":
         response_text = translate_text(user_text)
     elif state == "awaiting_weather":
@@ -191,10 +190,10 @@ def handle_text_message(user_text, sender_number, state):
     else:
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
-            response_text = "🕒 What should I remind you about?\n\n_Example: Remind me to call Mom at 19:00"
+            response_text = "🕒 What should I remind you about?\n\n_Example: Remind me to call Mom at 7pm_"
         elif user_text == "2":
             user_sessions[sender_number] = "awaiting_grammar"
-            response_text = "✍️ Send me the sentence or paragraph you want to correct."
+            response_text = "✍️ Send me the sentence or paragraph you want me to correct."
         elif user_text == "3":
             user_sessions[sender_number] = "awaiting_ai"
             response_text = "🤖 You can now chat with me! Ask me anything.\n\n_Type `menu` to exit this mode._"
@@ -222,6 +221,67 @@ def send_message(to, message):
         requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
+
+# --- NEW: Live AI Reply Function ---
+def ai_reply(prompt):
+    if not GROK_API_KEY:
+        return "❌ The Grok API key is not configured. This feature is disabled."
+
+    headers = {
+        "Authorization": f"Bearer {GROK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama3-8b-8192", # A popular and fast model on Groq
+        "messages": [
+            {"role": "system", "content": "You are a helpful AI assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=20)
+        response.raise_for_status()
+        result = response.json()
+        
+        if "choices" in result and result["choices"]:
+            reply = result["choices"][0]["message"]["content"]
+            return reply.strip()
+        else:
+            return "❌ Grok API returned a valid but empty reply."
+
+    except requests.exceptions.RequestException as e:
+        print(f"Grok API request error: {e}")
+        return "⚠️ Sorry, I couldn't connect to the AI service right now."
+    except (KeyError, IndexError) as e:
+        print(f"Grok API response parsing error: {e}")
+        return "⚠️ There was an issue with the response from the AI service."
+
+def correct_grammar_with_grok(text):
+    if not GROK_API_KEY:
+        return "❌ The Grok API key is not configured."
+
+    api_url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "system", "content": "You are a grammar correction assistant. Correct the grammar of the user's text and only return the corrected text, without any explanation or preamble."},
+            {"role": "user", "content": text}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+    }
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+        response.raise_for_status()
+        corrected_text = response.json()["choices"][0]["message"]["content"]
+        return f"✅ Corrected:\n\n_{corrected_text}_"
+    except Exception as e:
+        print(f"Grok grammar error: {e}")
+        return "❌ Sorry, the grammar correction service is unavailable."
 
 def schedule_reminder(user_text, sender_number):
     try:
@@ -291,7 +351,6 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-# --- NEW: Live Weather Function ---
 def get_weather_emoji(code):
     if code in [0, 1]: return "☀️"
     if code == 2: return "⛅️"
@@ -320,7 +379,6 @@ def get_weather(location):
         admin1 = result.get("admin1", "")
         country = result.get("country", "")
         
-        # Construct a clean location name
         location_parts = [part for part in [name, admin1, country] if part]
         full_location = ", ".join(location_parts)
 
@@ -344,7 +402,6 @@ def get_weather(location):
         print(f"Weather data parsing error: {e}")
         return "⚠️ I found the location, but couldn't get detailed weather for it."
 
-# --- Other conversion & utility functions ---
 def convert_text_to_pdf(text):
     pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
