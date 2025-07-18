@@ -14,7 +14,7 @@ from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
-from currency import convert_currency # <-- NEW: Import our function
+from currency import convert_currency # Import our function
 
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
@@ -205,14 +205,15 @@ def handle_text_message(user_text, sender_number, state):
         response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
     
-    # --- NEW: State for currency conversion ---
+    # --- NEW: AI-powered state for currency conversion ---
     elif state == "awaiting_currency_conversion":
-        match = re.search(r'(\d+(\.\d+)?)\s+([a-zA-Z]{3})\s+to\s+([a-zA-Z]{3})', user_text, re.IGNORECASE)
-        if match:
-            amount, _, from_curr, to_curr = match.groups()
-            response_text = convert_currency(amount, from_curr, to_curr)
+        send_message(sender_number, "Analysing your request...")
+        conversions = parse_currency_with_grok(user_text)
+        if conversions:
+            results = [convert_currency(c.get('amount'), c.get('from_currency'), c.get('to_currency')) for c in conversions]
+            response_text = "\n\n".join(results)
         else:
-            response_text = "❌ Invalid format. Please use: `<amount> <from_currency> to <to_currency>` (e.g., `100 USD to INR`)."
+            response_text = "❌ Sorry, I couldn't understand that conversion request. Please be specific about the amount and 3-letter currency codes (e.g., USD, INR)."
         user_sessions.pop(sender_number, None)
 
     elif state == "awaiting_text_to_pdf":
@@ -259,10 +260,9 @@ def handle_text_message(user_text, sender_number, state):
         elif user_text == "6":
             user_sessions[sender_number] = "awaiting_weather"
             response_text = "🏙️ Enter a city or location to get the current weather."
-        # --- NEW: Menu option for currency conversion ---
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "💱 *Currency Converter*\n\nPlease provide the conversion in the format:\n`<amount> <from_currency> to <to_currency>`\n\n_Example: `100 USD to INR`_"
+            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!\n\n_Examples:_\n- _How much is 50 dollars in indian rupees?_\n- _convert 20 eur to usd and 100 gbp to jpy_"
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
@@ -321,28 +321,17 @@ def correct_grammar_with_grok(text):
 
 def schedule_reminder(user_text, sender_number):
     try:
-        run_time, Rtokens = date_parser.parse(user_text, fuzzy_with_tokens=True)
-        task = " ".join(Rtokens).strip()
-        starters = ["remind me to", "remind me that", "remind me about"]
-        enders = ["on", "at", "in"]
-        task_lower = task.lower()
-        for starter in starters:
-            if task_lower.startswith(starter):
-                task = task[len(starter):].strip()
-        task_words = task.split()
-        if task_words and task_words[-1].lower() in enders:
-            task = " ".join(task_words[:-1]).strip()
-        if not task:
-            return "❌ I couldn't figure out the reminder task. Please be more specific."
+        send_message(sender_number, "Figuring out your reminder...")
+        task, timestamp_str = parse_reminder_with_grok(user_text)
+        if not task or not timestamp_str:
+            return "❌ I couldn't quite understand that reminder. Could you try phrasing it differently?"
+        run_time = date_parser.parse(timestamp_str)
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
         if run_time.tzinfo is None:
             run_time = tz.localize(run_time)
         if run_time < now:
-            if run_time.date() == now.date():
-                run_time += timedelta(days=1)
-            elif run_time.date() < now.date():
-                 return f"❌ The date for your reminder ({run_time.strftime('%b %d')}) seems to be in the past."
+            return f"❌ The time for your reminder ({run_time.strftime('%I:%M %p')}) seems to be in the past."
         reminder_message = f"⏰ *Reminder:* {task.capitalize()}"
         scheduler.add_job(
             func=send_message, trigger='date', run_date=run_time,
@@ -351,8 +340,6 @@ def schedule_reminder(user_text, sender_number):
             replace_existing=True
         )
         return f"✅ Got it! I'll remind you to *'{task}'* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-    except date_parser.ParserError:
-        return "❌ I couldn't understand the date or time in your reminder. Please try again."
     except Exception as e:
         print(f"❌ Reminder scheduling error: {e}")
         return "❌ Sorry, I had an unexpected error setting that reminder."
@@ -368,7 +355,7 @@ def get_welcome_message(name=""):
         "4️⃣  *File/Text Conversion* 📄\n"
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n"
-        "7️⃣  *Currency Converter* 💱\n\n" # <-- NEW: Added option 7
+        "7️⃣  *Currency Converter* 💱\n\n"
         "📌 Reply with a number (1–7) to begin.\n\n"
         "💡 _Hidden Feature: I'm also your personal expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
     )
@@ -461,7 +448,7 @@ def extract_text_from_pdf_file(file_path):
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
-# === Expense Tracker Functions ===
+# === AI PARSING FUNCTIONS ===
 def parse_expense_with_grok(text):
     if not GROK_API_KEY:
         print("Grok API key not set for expense parsing.")
@@ -491,6 +478,61 @@ def parse_expense_with_grok(text):
         print(f"Grok expense parsing error: {e}")
         return None
 
+def parse_reminder_with_grok(text):
+    if not GROK_API_KEY:
+        return None, None
+    api_url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    prompt = f"""
+    You are a task and time extraction assistant. From the user's text, identify the core task and the specific timestamp.
+    The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
+    The user's text is: "{text}"
+    Return a JSON object with two keys: "task" (the what) and "timestamp" (the when).
+    The timestamp should be in a machine-readable format like 'YYYY-MM-DD HH:MM:SS'.
+    Only return the JSON object.
+    """
+    payload = {
+        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1, "response_format": {"type": "json_object"}
+    }
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        result_data = json.loads(result_text)
+        return result_data.get("task"), result_data.get("timestamp")
+    except Exception as e:
+        print(f"Grok reminder parsing error: {e}")
+        return None, None
+
+def parse_currency_with_grok(text):
+    if not GROK_API_KEY:
+        return None
+    api_url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    prompt = f"""
+    You are an expert currency conversion parser. From the user's text, extract all requests to convert money.
+    The user's text is: "{text}"
+    Return a JSON object with a single key "conversions" which is an array of objects. 
+    Each object must have keys "amount", "from_currency", and "to_currency".
+    Use standard 3-letter currency codes (e.g., USD, INR, EUR).
+    Only return the JSON object.
+    """
+    payload = {
+        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1, "response_format": {"type": "json_object"}
+    }
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        result_data = json.loads(result_text)
+        return result_data.get("conversions")
+    except Exception as e:
+        print(f"Grok currency parsing error: {e}")
+        return None
+
+# === EXPENSE TRACKER FUNCTIONS ===
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
