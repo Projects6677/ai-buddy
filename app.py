@@ -151,10 +151,15 @@ def handle_text_message(user_text, sender_number, state):
         if expenses:
             confirmations = []
             for expense in expenses:
-                # Ensure cost is a number before logging
                 cost = expense.get('cost')
                 if isinstance(cost, (int, float)):
-                    confirmation = log_expense(sender_number, cost, expense.get('item'), expense.get('place'))
+                    confirmation = log_expense(
+                        sender_number, 
+                        cost, 
+                        expense.get('item'), 
+                        expense.get('place'), 
+                        expense.get('timestamp') # Pass the timestamp
+                    )
                     confirmations.append(confirmation)
                 else:
                     confirmations.append(f"❓ Could not log '{expense.get('item')}' - cost is unclear.")
@@ -439,25 +444,29 @@ def extract_text_from_pdf_file(file_path):
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
-# === Expense Tracker Functions ===
+# === Expense Tracker Functions (UPGRADED) ===
 def parse_expense_with_grok(text):
     if not GROK_API_KEY:
         print("Grok API key not set for expense parsing.")
         return None
     api_url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    
     prompt = f"""
     You are an expert expense parsing assistant. Your task is to extract all expenses from the user's text.
     The text is: "{text}"
-    Extract the cost (as a number), the item purchased, and the place of purchase (if mentioned).
-    Return the result as a JSON object with a single key "expenses" which is an array of objects. Each object must have keys "cost", "item", and "place".
-    If a place is not mentioned for an item, set its value to null.
+    Extract the cost (as a number), the item purchased, the place of purchase (if mentioned), and the timestamp (if mentioned).
+    Return the result as a JSON object with a single key "expenses" which is an array of objects. 
+    Each object must have keys "cost", "item", "place", and "timestamp".
+    If a place or timestamp is not mentioned, set its value to null.
     Only return the JSON object, with no other text or explanation.
     """
+    
     payload = {
         "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1, "response_format": {"type": "json_object"}
     }
+    
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=20)
         response.raise_for_status()
@@ -468,19 +477,39 @@ def parse_expense_with_grok(text):
         print(f"Grok expense parsing error: {e}")
         return None
 
-def log_expense(sender_number, amount, item, place=None):
+def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
+    
+    # Determine the timestamp
+    if timestamp_str:
+        try:
+            # Parse the string provided by the AI
+            expense_time = date_parser.parse(timestamp_str)
+            # Make it timezone-aware assuming the user's local timezone
+            tz = pytz.timezone('Asia/Kolkata')
+            expense_time = tz.localize(expense_time)
+        except (date_parser.ParserError, pytz.exceptions.AmbiguousTimeError):
+            # Fallback to current time if parsing fails
+            expense_time = datetime.now()
+    else:
+        # Default to current time
+        expense_time = datetime.now()
+
     new_expense = {
-        "cost": amount, "item": item,
+        "cost": amount,
+        "item": item,
         "place": place if place else "N/A",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": expense_time.isoformat()
     }
+    
     user_info.setdefault("expenses", []).append(new_expense)
     save_user_data(all_data)
+    
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A":
         log_message += f" at *{place.title()}*"
+    
     return log_message
 
 def export_expenses_to_excel(sender_number):
