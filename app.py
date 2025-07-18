@@ -15,7 +15,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
 from currency import convert_currency
-# --- NEW: Importing all AI functions from your new file ---
 from grok_ai import (
     ai_reply,
     correct_grammar_with_grok,
@@ -23,6 +22,7 @@ from grok_ai import (
     parse_reminder_with_grok,
     parse_currency_with_grok
 )
+from youtube_summarizer import summarize_youtube_video # <-- NEW IMPORT
 
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
@@ -141,9 +141,18 @@ def handle_document_message(message, sender_number, state):
 def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
     
+    # --- Smart Command Handling ---
     expense_keywords = ['spent', 'paid', 'bought', 'expense', 'cost']
     export_keywords = ['excel', 'sheet', 'report', 'export']
-    
+    youtube_keywords = ['youtube.com', 'youtu.be']
+
+    # NEW: YouTube Link Detection
+    if any(keyword in user_text_lower for keyword in youtube_keywords):
+        send_message(sender_number, "▶️ YouTube link detected! Fetching summary, please wait...")
+        summary = summarize_youtube_video(user_text)
+        send_message(sender_number, summary)
+        return
+
     if any(keyword in user_text_lower for keyword in export_keywords):
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number)
@@ -322,7 +331,7 @@ def get_welcome_message(name=""):
         "6️⃣  *Weather Forecast* ⛅\n"
         "7️⃣  *Currency Converter* 💱\n\n"
         "📌 Reply with a number (1–7) to begin.\n\n"
-        "💡 _Hidden Feature: I'm also your personal expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
+        "💡 _Pro-Tip: I can also summarize YouTube videos, track expenses, and export them to Excel!_"
     )
 
 def send_welcome_message(to, name):
