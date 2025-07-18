@@ -14,7 +14,15 @@ from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
-from currency import convert_currency # Import our function
+from currency import convert_currency
+# --- NEW: Importing all AI functions from your new file ---
+from grok_ai import (
+    ai_reply,
+    correct_grammar_with_grok,
+    parse_expense_with_grok,
+    parse_reminder_with_grok,
+    parse_currency_with_grok
+)
 
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
@@ -204,8 +212,6 @@ def handle_text_message(user_text, sender_number, state):
     elif state == "awaiting_weather":
         response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
-    
-    # --- NEW: AI-powered state for currency conversion ---
     elif state == "awaiting_currency_conversion":
         send_message(sender_number, "Analysing your request...")
         conversions = parse_currency_with_grok(user_text)
@@ -215,7 +221,6 @@ def handle_text_message(user_text, sender_number, state):
         else:
             response_text = "❌ Sorry, I couldn't understand that conversion request. Please be specific about the amount and 3-letter currency codes (e.g., USD, INR)."
         user_sessions.pop(sender_number, None)
-
     elif state == "awaiting_text_to_pdf":
         pdf_path = convert_text_to_pdf(user_text)
         send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
@@ -278,46 +283,6 @@ def send_message(to, message):
         requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
-
-def ai_reply(prompt):
-    if not GROK_API_KEY:
-        return "❌ The Grok API key is not configured. This feature is disabled."
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    data = {"model": "llama3-8b-8192", "messages": [{"role": "system", "content": "You are a helpful AI assistant."}, {"role": "user", "content": prompt}]}
-    try:
-        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=20)
-        response.raise_for_status()
-        result = response.json()
-        if "choices" in result and result["choices"]:
-            return result["choices"][0]["message"]["content"].strip()
-        return "❌ Grok API returned a valid but empty reply."
-    except requests.exceptions.RequestException as e:
-        print(f"Grok API request error: {e}")
-        return "⚠️ Sorry, I couldn't connect to the AI service right now."
-    except (KeyError, IndexError) as e:
-        print(f"Grok API response parsing error: {e}")
-        return "⚠️ There was an issue with the response from the AI service."
-
-def correct_grammar_with_grok(text):
-    if not GROK_API_KEY:
-        return "❌ The Grok API key is not configured."
-    api_url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "llama3-8b-8192",
-        "messages": [
-            {"role": "system", "content": "You are a grammar correction assistant. Correct the grammar of the user's text and only return the corrected text, without any explanation or preamble."},
-            {"role": "user", "content": text}
-        ], "temperature": 0.7, "max_tokens": 1024
-    }
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        corrected_text = response.json()["choices"][0]["message"]["content"]
-        return f"✅ Corrected:\n\n_{corrected_text}_"
-    except Exception as e:
-        print(f"Grok grammar error: {e}")
-        return "❌ Sorry, the grammar correction service is unavailable."
 
 def schedule_reminder(user_text, sender_number):
     try:
@@ -448,91 +413,7 @@ def extract_text_from_pdf_file(file_path):
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
-# === AI PARSING FUNCTIONS ===
-def parse_expense_with_grok(text):
-    if not GROK_API_KEY:
-        print("Grok API key not set for expense parsing.")
-        return None
-    api_url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""
-    You are an expert expense parsing assistant. Your task is to extract all expenses from the user's text.
-    The text is: "{text}"
-    Extract the cost (as a number), the item purchased, the place of purchase (if mentioned), and the timestamp (if mentioned).
-    Return the result as a JSON object with a single key "expenses" which is an array of objects. 
-    Each object must have keys "cost", "item", "place", and "timestamp".
-    If a place or timestamp is not mentioned, set its value to null.
-    Only return the JSON object, with no other text or explanation.
-    """
-    payload = {
-        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        result_data = json.loads(result_text)
-        return result_data.get("expenses")
-    except Exception as e:
-        print(f"Grok expense parsing error: {e}")
-        return None
-
-def parse_reminder_with_grok(text):
-    if not GROK_API_KEY:
-        return None, None
-    api_url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""
-    You are a task and time extraction assistant. From the user's text, identify the core task and the specific timestamp.
-    The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
-    The user's text is: "{text}"
-    Return a JSON object with two keys: "task" (the what) and "timestamp" (the when).
-    The timestamp should be in a machine-readable format like 'YYYY-MM-DD HH:MM:SS'.
-    Only return the JSON object.
-    """
-    payload = {
-        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        result_data = json.loads(result_text)
-        return result_data.get("task"), result_data.get("timestamp")
-    except Exception as e:
-        print(f"Grok reminder parsing error: {e}")
-        return None, None
-
-def parse_currency_with_grok(text):
-    if not GROK_API_KEY:
-        return None
-    api_url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""
-    You are an expert currency conversion parser. From the user's text, extract all requests to convert money.
-    The user's text is: "{text}"
-    Return a JSON object with a single key "conversions" which is an array of objects. 
-    Each object must have keys "amount", "from_currency", and "to_currency".
-    Use standard 3-letter currency codes (e.g., USD, INR, EUR).
-    Only return the JSON object.
-    """
-    payload = {
-        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        result_data = json.loads(result_text)
-        return result_data.get("conversions")
-    except Exception as e:
-        print(f"Grok currency parsing error: {e}")
-        return None
-
-# === EXPENSE TRACKER FUNCTIONS ===
+# === Expense Tracker Functions ===
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
