@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timedelta
 import json
-import re # For Expense Tracker
+import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
@@ -13,6 +13,7 @@ import pytz
 from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
+import pandas as pd
 
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
@@ -129,30 +130,39 @@ def handle_document_message(message, sender_number, state):
     user_sessions.pop(sender_number, None)
 
 def handle_text_message(user_text, sender_number, state):
-    # --- Smart Command Handling for Expense Tracker ---
-    log_pattern = re.match(r'(spent|paid|add expense)\s+(\d+(\.\d+)?)\s+(on|for)\s+(.+)', user_text, re.IGNORECASE)
-    view_pattern = re.match(r'(show|view|get)\s+(my\s+)?expenses(\s+for)?\s+(today|this week|this month)', user_text, re.IGNORECASE)
-    total_pattern = re.match(r'total\s+(spent\s+)?(today|this week|this month)', user_text, re.IGNORECASE)
-
-    if log_pattern:
-        amount = float(log_pattern.group(2))
-        category = log_pattern.group(5).strip()
-        response_text = log_expense(sender_number, amount, category)
-        send_message(sender_number, response_text)
-        return
+    user_text_lower = user_text.lower()
     
-    if view_pattern:
-        timeframe = view_pattern.group(4)
-        response_text = view_expenses(sender_number, timeframe)
-        send_message(sender_number, response_text)
+    # --- AI-Powered Expense Command Handling ---
+    expense_keywords = ['spent', 'paid', 'bought', 'expense', 'cost']
+    
+    if user_text_lower == "give excel sheet":
+        send_message(sender_number, "📊 Generating your expense report...")
+        file_path = export_expenses_to_excel(sender_number)
+        if file_path:
+            send_file_to_user(sender_number, file_path, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Here is your expense report.xlsx")
+            os.remove(file_path)
+        else:
+            send_message(sender_number, "You have no expenses to export yet.")
         return
 
-    if total_pattern:
-        timeframe = total_pattern.group(2)
-        response_text = view_expenses(sender_number, timeframe, show_total_only=True)
-        send_message(sender_number, response_text)
+    if any(keyword in user_text_lower for keyword in expense_keywords):
+        send_message(sender_number, "Analyzing expense...")
+        expenses = parse_expense_with_grok(user_text)
+        if expenses:
+            confirmations = []
+            for expense in expenses:
+                # Ensure cost is a number before logging
+                cost = expense.get('cost')
+                if isinstance(cost, (int, float)):
+                    confirmation = log_expense(sender_number, cost, expense.get('item'), expense.get('place'))
+                    confirmations.append(confirmation)
+                else:
+                    confirmations.append(f"❓ Could not log '{expense.get('item')}' - cost is unclear.")
+            send_message(sender_number, "\n".join(confirmations))
+        else:
+            send_message(sender_number, "Sorry, I couldn't understand that as an expense. Try being more specific about the cost and item.")
         return
-    
+
     user_data = load_user_data()
     response_text = ""
 
@@ -169,7 +179,7 @@ def handle_text_message(user_text, sender_number, state):
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
-        user_data[sender_number] = {"name": name, "expenses": []} # Initialize expenses list
+        user_data[sender_number] = {"name": name, "expenses": []}
         save_user_data(user_data)
         user_sessions.pop(sender_number, None)
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
@@ -338,7 +348,7 @@ def get_welcome_message(name=""):
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n\n"
         "📌 Reply with a number (1–6) to begin.\n\n"
-        "💡 _Pro-Tip: Track expenses by typing `spent 50 on food`!_"
+        "💡 _Hidden Feature: I'm also your personal expense tracker! Just tell me what you spent (e.g., `I bought coffee for 150 at Starbucks`) and ask for your data anytime with `Give Excel Sheet`._"
     )
 
 def send_welcome_message(to, name):
@@ -430,45 +440,63 @@ def extract_text_from_pdf_file(file_path):
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
 # === Expense Tracker Functions ===
-def log_expense(sender_number, amount, category):
-    all_data = load_user_data()
-    user_info = all_data.setdefault(sender_number, {"expenses": []})
-    user_info.setdefault("expenses", []).append({
-        "amount": amount,
-        "category": category,
-        "timestamp": datetime.now().isoformat()
-    })
-    save_user_data(all_data)
-    return f"✅ Logged: *₹{amount:.2f}* on *{category.title()}*."
+def parse_expense_with_grok(text):
+    if not GROK_API_KEY:
+        print("Grok API key not set for expense parsing.")
+        return None
+    api_url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    prompt = f"""
+    You are an expert expense parsing assistant. Your task is to extract all expenses from the user's text.
+    The text is: "{text}"
+    Extract the cost (as a number), the item purchased, and the place of purchase (if mentioned).
+    Return the result as a JSON object with a single key "expenses" which is an array of objects. Each object must have keys "cost", "item", and "place".
+    If a place is not mentioned for an item, set its value to null.
+    Only return the JSON object, with no other text or explanation.
+    """
+    payload = {
+        "model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1, "response_format": {"type": "json_object"}
+    }
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        result_data = json.loads(result_text)
+        return result_data.get("expenses")
+    except Exception as e:
+        print(f"Grok expense parsing error: {e}")
+        return None
 
-def view_expenses(sender_number, timeframe, show_total_only=False):
+def log_expense(sender_number, amount, item, place=None):
+    all_data = load_user_data()
+    user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
+    new_expense = {
+        "cost": amount, "item": item,
+        "place": place if place else "N/A",
+        "timestamp": datetime.now().isoformat()
+    }
+    user_info.setdefault("expenses", []).append(new_expense)
+    save_user_data(all_data)
+    log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
+    if place and place != "N/A":
+        log_message += f" at *{place.title()}*"
+    return log_message
+
+def export_expenses_to_excel(sender_number):
     all_data = load_user_data()
     user_expenses = all_data.get(sender_number, {}).get("expenses", [])
     if not user_expenses:
-        return "You have no expenses logged yet."
-    now = datetime.now()
-    if timeframe == "today":
-        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif timeframe == "this week":
-        start_date = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif timeframe == "this month":
-        start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    else: # Should not happen with the regex, but as a fallback
-        return "Invalid timeframe."
-    
-    filtered_expenses = [e for e in user_expenses if datetime.fromisoformat(e["timestamp"]) >= start_date]
-    if not filtered_expenses:
-        return f"No expenses logged for *{timeframe}*."
-
-    total = sum(e['amount'] for e in filtered_expenses)
-    if show_total_only:
-        return f"💰 Total spent *{timeframe}*: *₹{total:.2f}*"
-    
-    response = f"🧾 Your expenses for *{timeframe}*:\n"
-    for e in filtered_expenses:
-        response += f"\n- ₹{e['amount']:.2f} on {e['category'].title()}"
-    response += f"\n\n*Total: ₹{total:.2f}*"
-    return response
+        return None
+    df = pd.DataFrame(user_expenses)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['Date'] = df['timestamp'].dt.strftime('%Y-%m-%d')
+    df['Time'] = df['timestamp'].dt.strftime('%I:%M %p')
+    df = df[['Date', 'Time', 'item', 'place', 'cost']]
+    df.rename(columns={'item': 'Item', 'place': 'Place', 'cost': 'Cost (₹)'}, inplace=True)
+    file_path = os.path.join("uploads", f"expenses_{sender_number}.xlsx")
+    df.to_excel(file_path, index=False, engine='openpyxl')
+    return file_path
 
 # === RUN APP ===
 if __name__ == '__main__':
