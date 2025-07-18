@@ -4,6 +4,7 @@ import os
 import time
 from datetime import datetime, timedelta
 import json
+import re # For Expense Tracker
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
@@ -128,6 +129,30 @@ def handle_document_message(message, sender_number, state):
     user_sessions.pop(sender_number, None)
 
 def handle_text_message(user_text, sender_number, state):
+    # --- Smart Command Handling for Expense Tracker ---
+    log_pattern = re.match(r'(spent|paid|add expense)\s+(\d+(\.\d+)?)\s+(on|for)\s+(.+)', user_text, re.IGNORECASE)
+    view_pattern = re.match(r'(show|view|get)\s+(my\s+)?expenses(\s+for)?\s+(today|this week|this month)', user_text, re.IGNORECASE)
+    total_pattern = re.match(r'total\s+(spent\s+)?(today|this week|this month)', user_text, re.IGNORECASE)
+
+    if log_pattern:
+        amount = float(log_pattern.group(2))
+        category = log_pattern.group(5).strip()
+        response_text = log_expense(sender_number, amount, category)
+        send_message(sender_number, response_text)
+        return
+    
+    if view_pattern:
+        timeframe = view_pattern.group(4)
+        response_text = view_expenses(sender_number, timeframe)
+        send_message(sender_number, response_text)
+        return
+
+    if total_pattern:
+        timeframe = total_pattern.group(2)
+        response_text = view_expenses(sender_number, timeframe, show_total_only=True)
+        send_message(sender_number, response_text)
+        return
+    
     user_data = load_user_data()
     response_text = ""
 
@@ -144,7 +169,7 @@ def handle_text_message(user_text, sender_number, state):
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
-        user_data[sender_number] = {"name": name}
+        user_data[sender_number] = {"name": name, "expenses": []} # Initialize expenses list
         save_user_data(user_data)
         user_sessions.pop(sender_number, None)
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
@@ -191,7 +216,7 @@ def handle_text_message(user_text, sender_number, state):
     else:
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
-            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_\n- _Remind me about the team meeting on August 1st at 10am_"
+            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_\n- _I have a meeting on August 1st at 10am_"
         elif user_text == "2":
             user_sessions[sender_number] = "awaiting_grammar"
             response_text = "✍️ Send me the sentence or paragraph you want me to correct."
@@ -263,41 +288,31 @@ def correct_grammar_with_grok(text):
         print(f"Grok grammar error: {e}")
         return "❌ Sorry, the grammar correction service is unavailable."
 
-# --- NEW: More flexible reminder function ---
 def schedule_reminder(user_text, sender_number):
     try:
-        # Sanitize the input to handle different phrasing
-        text_to_parse = user_text.lower()
-        starters = ["remind me to ", "remind me that ", "remind me about "]
-        task_part = user_text
-        for starter in starters:
-            if text_to_parse.startswith(starter):
-                task_part = user_text[len(starter):]
-                break
-        
-        # Use fuzzy parsing to extract the time and the task
-        run_time, Rtokens = date_parser.parse(task_part, fuzzy_with_tokens=True)
+        run_time, Rtokens = date_parser.parse(user_text, fuzzy_with_tokens=True)
         task = " ".join(Rtokens).strip()
-
-        # A common parsing error is including "on" or "at" at the end of the task
-        if task.endswith(" on") or task.endswith(" at"):
-            task = task[:-3].strip()
-
+        starters = ["remind me to", "remind me that", "remind me about"]
+        enders = ["on", "at", "in"]
+        task_lower = task.lower()
+        for starter in starters:
+            if task_lower.startswith(starter):
+                task = task[len(starter):].strip()
+        task_words = task.split()
+        if task_words and task_words[-1].lower() in enders:
+            task = " ".join(task_words[:-1]).strip()
         if not task:
-            return "❌ I couldn't figure out what you want to be reminded of. Please be more specific."
-
-        # Make the time timezone-aware
+            return "❌ I couldn't figure out the reminder task. Please be more specific."
         tz = pytz.timezone('Asia/Kolkata')
         now = datetime.now(tz)
-        
         if run_time.tzinfo is None:
             run_time = tz.localize(run_time)
-
         if run_time < now:
-            run_time += timedelta(days=1)
-
+            if run_time.date() == now.date():
+                run_time += timedelta(days=1)
+            elif run_time.date() < now.date():
+                 return f"❌ The date for your reminder ({run_time.strftime('%b %d')}) seems to be in the past."
         reminder_message = f"⏰ *Reminder:* {task.capitalize()}"
-        
         scheduler.add_job(
             func=send_message, trigger='date', run_date=run_time,
             args=[sender_number, reminder_message],
@@ -305,13 +320,11 @@ def schedule_reminder(user_text, sender_number):
             replace_existing=True
         )
         return f"✅ Got it! I'll remind you to *'{task}'* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-
     except date_parser.ParserError:
-        return "❌ I couldn't understand the date or time for the reminder. Please try again with a clear date and time."
+        return "❌ I couldn't understand the date or time in your reminder. Please try again."
     except Exception as e:
         print(f"❌ Reminder scheduling error: {e}")
         return "❌ Sorry, I had an unexpected error setting that reminder."
-
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
@@ -324,7 +337,8 @@ def get_welcome_message(name=""):
         "4️⃣  *File/Text Conversion* 📄\n"
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n\n"
-        "📌 Reply with a number (1–6) to begin."
+        "📌 Reply with a number (1–6) to begin.\n\n"
+        "💡 _Pro-Tip: Track expenses by typing `spent 50 on food`!_"
     )
 
 def send_welcome_message(to, name):
@@ -414,6 +428,47 @@ def extract_text_from_pdf_file(file_path):
         return text.strip()
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
+
+# === Expense Tracker Functions ===
+def log_expense(sender_number, amount, category):
+    all_data = load_user_data()
+    user_info = all_data.setdefault(sender_number, {"expenses": []})
+    user_info.setdefault("expenses", []).append({
+        "amount": amount,
+        "category": category,
+        "timestamp": datetime.now().isoformat()
+    })
+    save_user_data(all_data)
+    return f"✅ Logged: *₹{amount:.2f}* on *{category.title()}*."
+
+def view_expenses(sender_number, timeframe, show_total_only=False):
+    all_data = load_user_data()
+    user_expenses = all_data.get(sender_number, {}).get("expenses", [])
+    if not user_expenses:
+        return "You have no expenses logged yet."
+    now = datetime.now()
+    if timeframe == "today":
+        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif timeframe == "this week":
+        start_date = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif timeframe == "this month":
+        start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else: # Should not happen with the regex, but as a fallback
+        return "Invalid timeframe."
+    
+    filtered_expenses = [e for e in user_expenses if datetime.fromisoformat(e["timestamp"]) >= start_date]
+    if not filtered_expenses:
+        return f"No expenses logged for *{timeframe}*."
+
+    total = sum(e['amount'] for e in filtered_expenses)
+    if show_total_only:
+        return f"💰 Total spent *{timeframe}*: *₹{total:.2f}*"
+    
+    response = f"🧾 Your expenses for *{timeframe}*:\n"
+    for e in filtered_expenses:
+        response += f"\n- ₹{e['amount']:.2f} on {e['category'].title()}"
+    response += f"\n\n*Total: ₹{total:.2f}*"
+    return response
 
 # === RUN APP ===
 if __name__ == '__main__':
