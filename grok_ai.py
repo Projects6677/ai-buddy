@@ -6,8 +6,8 @@ from datetime import datetime
 # --- Configuration ---
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
 GROK_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROK_MODEL_FAST = "llama3-8b-8192"  # Use a fast model for parsing and classification
-GROK_MODEL_SMART = "llama3-70b-8192" # Use a smart model for creative tasks
+GROK_MODEL_FAST = "llama3-8b-8192"
+GROK_MODEL_SMART = "llama3-70b-8192"
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
     "Content-Type": "application/json"
@@ -181,14 +181,15 @@ def analyze_email_subject(subject):
         print(f"Grok subject analysis error: {e}")
         return None
 
-# In grok_ai.py
-
 def write_email_body_with_grok(prompt):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured. This feature is disabled."
-    system_prompt = "You are an expert email writing assistant. Based on the user's prompt, write a clear, professional, and well-formatted email body. Only return the email body, without any subject line, greeting, or sign-off unless specifically requested."
+    
+    # --- NEW: More strict system prompt ---
+    system_prompt = "You are an expert email writing assistant. Based on the user's prompt, write a clear, professional, and well-formatted email body. Your entire response must consist *only* of the email body text. Do not include a subject line, greetings like 'Hello,', sign-offs like 'Sincerely,', or any preamble like 'Here is the email body:'."
+    
     payload = {
-        "model": "llama3-70b-8192",
+        "model": GROK_MODEL_SMART,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.7
     }
