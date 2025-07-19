@@ -13,6 +13,31 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+# --- NEW: Intent Classification Function ---
+def is_expense_intent(text):
+    if not GROK_API_KEY: return False
+    
+    prompt = f"""
+    You are an intent classification assistant. Read the text and determine if the user is trying to log a financial expense.
+    An expense includes words about buying, spending, or acquiring something with a cost.
+    The text is: "{text}"
+    Respond with only the word "yes" or "no".
+    """
+    payload = {
+        "model": "llama3-8b-8192", # Use a fast model for classification
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+        "max_tokens": 5
+    }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=10)
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"].strip().lower()
+        return "yes" in reply
+    except Exception as e:
+        print(f"Grok intent classification error: {e}")
+        return False
+
 # --- Main AI Chat Function ---
 def ai_reply(prompt):
     if not GROK_API_KEY:
@@ -23,7 +48,6 @@ def ai_reply(prompt):
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
-
     try:
         res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         res.raise_for_status()
@@ -36,7 +60,6 @@ def ai_reply(prompt):
 def correct_grammar_with_grok(text):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured. This feature is disabled."
-
     system_prompt = """
     You are an expert grammar and spelling correction assistant.
     Correct the user's text. If the text is heavily misspelled or jumbled,
@@ -44,7 +67,6 @@ def correct_grammar_with_grok(text):
     Only return the corrected text, without any explanation, preamble, or quotation marks.
     For example, if the user says 'herrr are you', the likely intent is 'How are you?'.
     """
-    
     payload = {
         "model": GROK_MODEL,
         "messages": [
@@ -53,15 +75,12 @@ def correct_grammar_with_grok(text):
         ],
         "temperature": 0.2
     }
-
     try:
         res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         res.raise_for_status()
-        
         corrected_text = res.json()["choices"][0]["message"]["content"].strip()
         if corrected_text.startswith('"') and corrected_text.endswith('"'):
             corrected_text = corrected_text[1:-1]
-            
         return f"✅ Corrected:\n\n_{corrected_text}_"
     except Exception as e:
         print(f"Grok Grammar error: {e}")
