@@ -26,6 +26,7 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok
 )
+from youtube_summarizer import summarize_youtube_video
 from email_sender import send_email
 from cricket import get_combined_matches, get_score_for_match
 
@@ -224,7 +225,7 @@ def handle_text_message(user_text, sender_number, state):
                 match_id = match["id"]
                 send_message(sender_number, f"Great! Fetching the score for *{match['description']}*...")
                 score = get_score_for_match(match_id)
-                send_message(sender_number, score) # Send score without button
+                send_message(sender_number, score)
                 user_sessions.pop(sender_number, None)
             else:
                 send_message(sender_number, "⚠️ Invalid number. Please pick a number from the list.")
@@ -408,12 +409,12 @@ def handle_cricket_request(sender_number):
     
     send_message(sender_number, response_text)
 
-def send_message(to, message, buttons=None):
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    payload = { "messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False} }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False}}
     try:
-        requests.post(url, headers=headers, json=payload, timeout=10)
+        requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
 
@@ -432,7 +433,7 @@ def get_welcome_message(name=""):
         "8️⃣  *Live Cricket Scores* 🏏\n"
         "9️⃣  *AI Email Assistant* 📧\n\n"
         "📌 Reply with a number (1–9) to begin.\n\n"
-        "💡 _Hidden Feature: I also have a YouTube summarizer and an AI expense tracker!_"
+        "💡 _Hidden Feature: I'm also a YouTube summarizer and an AI expense tracker!_"
     )
 
 def send_welcome_message(to, name):
