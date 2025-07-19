@@ -25,8 +25,6 @@ from grok_ai import (
     analyze_email_subject,
     edit_email_body
 )
-from youtube_summarizer import summarize_youtube_video
-from cricket import get_live_scores
 from email_sender import send_email
 
 # --- Mock functions for other modules ---
