@@ -20,9 +20,9 @@ from grok_ai import (
     correct_grammar_with_grok,
     parse_expense_with_grok,
     parse_reminder_with_grok,
-    parse_currency_with_grok
+    parse_currency_with_grok,
+    is_expense_intent # <-- NEW IMPORT
 )
-from cricket import get_live_scores
 from email_sender import send_email
 
 # --- Mock functions for other modules ---
@@ -147,10 +147,16 @@ def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
     
     # --- Smart Command Handling ---
-    expense_keywords = ['spent', 'paid', 'bought', 'expense', 'cost']
     export_keywords = ['excel', 'sheet', 'report', 'export']
+    youtube_keywords = ['youtube.com', 'youtu.be']
     cricket_keywords = ['cricket', 'score']
     
+    if any(keyword in user_text_lower for keyword in youtube_keywords):
+        send_message(sender_number, "▶️ YouTube link detected! Fetching summary, please wait...")
+        summary = summarize_youtube_video(user_text)
+        send_message(sender_number, summary)
+        return
+
     if all(keyword in user_text_lower for keyword in cricket_keywords):
         send_message(sender_number, "Fetching live scores, please wait...")
         scores = get_live_scores()
@@ -167,7 +173,8 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "You have no expenses to export yet.")
         return
 
-    if any(keyword in user_text_lower for keyword in expense_keywords):
+    # --- NEW: AI-powered intent detection for expenses ---
+    if is_expense_intent(user_text):
         send_message(sender_number, "Analyzing expense...")
         expenses = parse_expense_with_grok(user_text)
         if expenses:
