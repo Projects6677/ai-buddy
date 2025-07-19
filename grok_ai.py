@@ -181,12 +181,14 @@ def analyze_email_subject(subject):
         print(f"Grok subject analysis error: {e}")
         return None
 
+# In grok_ai.py
+
 def write_email_body_with_grok(prompt):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured. This feature is disabled."
     system_prompt = "You are an expert email writing assistant. Based on the user's prompt, write a clear, professional, and well-formatted email body. Only return the email body, without any subject line, greeting, or sign-off unless specifically requested."
     payload = {
-        "model": GROK_MODEL_SMART,
+        "model": "llama3-70b-8192",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.7
     }
