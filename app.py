@@ -27,8 +27,7 @@ from grok_ai import (
     write_email_body_with_grok
 )
 from email_sender import send_email
-from cricket import get_live_match_list, get_score_for_match
-
+from cricket import get_combined_matches, get_score_for_match
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 # --- End of mock functions ---
