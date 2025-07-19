@@ -383,25 +383,44 @@ def handle_text_message(user_text, sender_number, state):
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def handle_cricket_request(sender_number):
-    send_message(sender_number, "Fetching live matches, please wait...")
-    live_matches = get_live_match_list()
+    send_message(sender_number, "Fetching all live and upcoming matches, please wait...")
+    match_data = get_combined_matches()
 
-    if live_matches == "API_ERROR":
-        send_message(sender_number, "❌ Sorry, I couldn't connect to the cricket service right now.")
+    if match_data.get("error"):
+        send_message(sender_number, match_data["error"])
         return
     
-    if not live_matches:
-        send_message(sender_number, "No live cricket matches found at the moment. 🏏")
-        return
+    live_matches = match_data.get("live", [])
+    upcoming_matches = match_data.get("upcoming", [])
 
+    if not live_matches and not upcoming_matches:
+        send_message(sender_number, "No live or upcoming cricket matches found at the moment. 🏏")
+        return
+    
+    # Combine lists for selection
+    all_selectable_matches = live_matches + upcoming_matches
+    
     user_sessions[sender_number] = {
         "state": "awaiting_cricket_match_selection",
-        "live_matches": live_matches
+        "live_matches": all_selectable_matches
     }
 
-    response_text = "Here are the current live matches:\n\n"
-    for i, match in enumerate(live_matches):
-        response_text += f"*{i+1}.* {match['description']} _({match['series']})_\n"
+    # Format the list for the user to select
+    response_text = ""
+    current_match_number = 1
+
+    if live_matches:
+        response_text += "*--- LIVE NOW ---*\n"
+        for match in live_matches:
+            response_text += f"*{current_match_number}.* {match['description']}\n"
+            current_match_number += 1
+    
+    if upcoming_matches:
+        response_text += "\n*--- UPCOMING ---*\n"
+        for match in upcoming_matches:
+            response_text += f"*{current_match_number}.* {match['description']}\n"
+            current_match_number += 1
+
     response_text += "\nReply with the number of the match you want to follow."
     
     send_message(sender_number, response_text)
