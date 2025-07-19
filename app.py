@@ -27,6 +27,7 @@ from grok_ai import (
     write_email_body_with_grok
 )
 from email_sender import send_email
+
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 # --- End of mock functions ---
@@ -42,8 +43,6 @@ GROK_API_KEY = os.environ.get("GROK_API_KEY")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -109,15 +108,6 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
-            button_id = message["interactive"]["button_reply"]["id"]
-            if button_id.startswith("refresh_cricket_"):
-                match_id = button_id.split("_")[-1]
-                send_message(sender_number, "Refreshing score...")
-                score = get_score_for_match(match_id)
-                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
-            return "OK", 200
-
         if msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
@@ -159,19 +149,7 @@ def handle_text_message(user_text, sender_number, state):
     
     # --- Smart Command Handling ---
     export_keywords = ['excel', 'sheet', 'report', 'export']
-    youtube_keywords = ['youtube.com', 'youtu.be']
-    cricket_keywords = ['cricket', 'score']
     
-    if any(keyword in user_text_lower for keyword in youtube_keywords) and not state:
-        send_message(sender_number, "▶️ YouTube link detected! Fetching summary, please wait...")
-        summary = summarize_youtube_video(user_text)
-        send_message(sender_number, summary)
-        return
-
-    if all(keyword in user_text_lower for keyword in cricket_keywords) and not state:
-        handle_cricket_request(sender_number)
-        return
-
     if any(keyword in user_text_lower for keyword in export_keywords) and not state:
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number)
@@ -190,7 +168,13 @@ def handle_text_message(user_text, sender_number, state):
             for expense in expenses:
                 cost = expense.get('cost')
                 if isinstance(cost, (int, float)):
-                    confirmation = log_expense(sender_number, cost, expense.get('item'), expense.get('place'), expense.get('timestamp'))
+                    confirmation = log_expense(
+                        sender_number, 
+                        cost, 
+                        expense.get('item'), 
+                        expense.get('place'), 
+                        expense.get('timestamp')
+                    )
                     confirmations.append(confirmation)
                 else:
                     confirmations.append(f"❓ Could not log '{expense.get('item')}' - cost is unclear.")
@@ -221,23 +205,6 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
         send_welcome_message(sender_number, name)
-    elif isinstance(state, dict) and state.get("state") == "awaiting_cricket_match_selection":
-        try:
-            choice_index = int(user_text) - 1
-            live_matches = state.get("live_matches", [])
-            
-            if 0 <= choice_index < len(live_matches):
-                match = live_matches[choice_index]
-                match_id = match["id"]
-                send_message(sender_number, f"Great! Fetching the score for *{match['description']}*...")
-                score = get_score_for_match(match_id)
-                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
-                user_sessions.pop(sender_number, None)
-            else:
-                send_message(sender_number, "⚠️ Invalid number. Please pick a number from the list.")
-        except (ValueError, TypeError):
-            send_message(sender_number, "Please reply with a number only.")
-        return
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -412,9 +379,6 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_currency_conversion"
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
-            handle_cricket_request(sender_number)
-            return
-        elif user_text == "9":
             user_sessions[sender_number] = "awaiting_email_recipient"
             response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? Please enter their email addresses, separated by commas."
         else:
@@ -424,27 +388,12 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, response_text)
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
-def send_message(to, message, buttons=None):
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    
-    if buttons:
-        payload = {
-            "messaging_product": "whatsapp", "to": to, "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": message},
-                "action": {"buttons": [{"type": "reply", "reply": b} for b in buttons]}
-            }
-        }
-    else:
-        payload = {
-            "messaging_product": "whatsapp", "to": to, "type": "text",
-            "text": {"body": message, "preview_url": False}
-        }
-    
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False}}
     try:
-        requests.post(url, headers=headers, json=payload, timeout=10)
+        requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
 
@@ -460,10 +409,9 @@ def get_welcome_message(name=""):
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n"
         "7️⃣  *Currency Converter* 💱\n"
-        "8️⃣  *Live Cricket Scores* 🏏\n"
-        "9️⃣  *AI Email Assistant* 📧\n\n"
-        "📌 Reply with a number (1–9) to begin.\n\n"
-        "💡 _Hidden Feature: I'm also a YouTube summarizer and an AI expense tracker!_"
+        "8️⃣  *AI Email Assistant* 📧\n\n"
+        "📌 Reply with a number (1–8) to begin.\n\n"
+        "💡 _Hidden Feature: I'm also an AI expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
     )
 
 def send_welcome_message(to, name):
@@ -479,44 +427,6 @@ def get_conversion_menu():
         "4️⃣ Text ➡️ Word\n\n"
         "Reply with a number (1-4)."
     )
-
-def handle_cricket_request(sender_number):
-    send_message(sender_number, "Fetching live and upcoming matches, please wait...")
-    match_data = get_combined_matches()
-
-    if match_data.get("error"):
-        send_message(sender_number, match_data["error"])
-        return
-    
-    live_matches = match_data.get("live", [])
-    upcoming_matches = match_data.get("upcoming", [])
-
-    if not live_matches and not upcoming_matches:
-        send_message(sender_number, "No live or upcoming cricket matches found at the moment. 🏏")
-        return
-    
-    all_selectable_matches = live_matches + upcoming_matches
-    
-    user_sessions[sender_number] = {
-        "state": "awaiting_cricket_match_selection",
-        "live_matches": all_selectable_matches
-    }
-
-    response_text = ""
-    current_match_number = 1
-    if live_matches:
-        response_text += "*--- LIVE NOW ---*\n"
-        for match in live_matches:
-            response_text += f"*{current_match_number}.* {match['description']}\n"
-            current_match_number += 1
-    if upcoming_matches:
-        response_text += "\n*--- UPCOMING ---*\n"
-        for match in upcoming_matches:
-            response_text += f"*{current_match_number}.* {match['description']}\n"
-            current_match_number += 1
-    response_text += "\nReply with the number of the match you want to follow."
-    
-    send_message(sender_number, response_text)
 
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
