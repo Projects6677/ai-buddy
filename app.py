@@ -251,68 +251,49 @@ def handle_text_message(user_text, sender_number, state):
         else:
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send'* to approve._"
+    
+    # --- CORRECTED: This block now handles all approval cases correctly ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
-        approval_words = ["send", "approve", "ok send", "yes send"]
-        triggered = False
-        for word in approval_words:
-            if user_text_lower.startswith(word):
-                triggered = True
-                time_string = user_text[len(word):].strip()
-                if time_string:
-                    try:
-                        tz = pytz.timezone('Asia/Kolkata')
-                        now = datetime.now(tz)
-                        run_time = date_parser.parse(time_string, default=now)
-                        if run_time.tzinfo is None:
-                            run_time = tz.localize(run_time)
-                        if run_time < now:
-                             response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
-                        else:
-                            scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"]])
-                            response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-                        user_sessions.pop(sender_number, None)
-                    except date_parser.ParserError:
-                        user_sessions[sender_number]["state"] = "awaiting_email_schedule"
-                        response_text = "✅ Draft approved, but I didn't understand that time. Please reply with *now* or a new time."
-                else:
-                    user_sessions[sender_number]["state"] = "awaiting_email_schedule"
-                    response_text = "✅ Draft approved. Send it *now* or *schedule it* for a later time?\n\n_Example: `tomorrow at 9am`_"
-                break
-        if not triggered:
-            send_message(sender_number, "✏️ Applying your changes, please wait...")
-            new_body = edit_email_body(state["body"], user_text)
-            if new_body:
-                user_sessions[sender_number]["body"] = new_body
-                response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send'*._"
-            else:
-                response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
-    elif isinstance(state, dict) and state.get("state") == "awaiting_email_schedule":
-        recipients = state["recipients"]
-        subject = state["subject"]
-        body = state["body"]
-        if user_text.lower() == "now":
-            send_message(sender_number, "Okay, sending the email now...")
-            response_text = send_email(recipients, subject, body)
+        # Case 1: Simple approval command like "send" or "send it"
+        if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
+            send_message(sender_number, "✅ Okay, sending the email now...")
+            response_text = send_email(state["recipients"], state["subject"], state["body"])
             user_sessions.pop(sender_number, None)
         else:
-            try:
-                tz = pytz.timezone('Asia/Kolkata')
-                now = datetime.now(tz)
-                run_time = date_parser.parse(user_text)
-                if run_time.tzinfo is None:
-                    run_time = tz.localize(run_time)
-                if run_time < now:
-                    if run_time.date() == now.date():
-                        run_time += timedelta(days=1)
+            # Case 2: Approval with a time, e.g., "send tomorrow at 5pm"
+            approval_words = ["send", "approve"]
+            is_schedule_command = False
+            time_string = ""
+            for word in approval_words:
+                if user_text_lower.startswith(word + " "):
+                    time_string = user_text[len(word):].strip()
+                    is_schedule_command = True
+                    break
+            
+            if is_schedule_command:
+                try:
+                    tz = pytz.timezone('Asia/Kolkata')
+                    now = datetime.now(tz)
+                    run_time = date_parser.parse(time_string, default=now)
+                    if run_time.tzinfo is None:
+                        run_time = tz.localize(run_time)
+                    if run_time < now:
+                         response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
                     else:
-                        response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
-                        if response_text: send_message(sender_number, response_text)
-                        return
-                scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[recipients, subject, body])
-                response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-                user_sessions.pop(sender_number, None)
-            except date_parser.ParserError:
-                response_text = "I didn't understand that time. Please try again (e.g., 'now', 'tomorrow at 10am')."
+                        scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"]])
+                        response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+                    user_sessions.pop(sender_number, None)
+                except date_parser.ParserError:
+                    response_text = "✅ Draft approved, but I didn't understand that time. Please try again."
+            else: # Case 3: It's an edit request
+                send_message(sender_number, "✏️ Applying your changes, please wait...")
+                new_body = edit_email_body(state["body"], user_text)
+                if new_body:
+                    user_sessions[sender_number]["body"] = new_body
+                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send'*._"
+                else:
+                    response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
+
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number)
         user_sessions.pop(sender_number, None)
