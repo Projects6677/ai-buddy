@@ -111,7 +111,6 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        # Handle button replies for cricket score refresh
         if msg_type == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
             button_id = message["interactive"]["button_reply"]["id"]
             if button_id.startswith("refresh_cricket_"):
@@ -160,7 +159,7 @@ def handle_document_message(message, sender_number, state):
 def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
     
-    # --- Smart Command Handling ---
+    # Smart Command Handling
     export_keywords = ['excel', 'sheet', 'report', 'export']
     youtube_keywords = ['youtube.com', 'youtu.be']
     cricket_keywords = ['cricket', 'score']
@@ -224,11 +223,12 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
         send_welcome_message(sender_number, name)
-    elif state == "awaiting_cricket_match_selection":
+
+    # --- FIX: Corrected the state check for cricket match selection ---
+    elif isinstance(state, dict) and state.get("state") == "awaiting_cricket_match_selection":
         try:
             choice_index = int(user_text) - 1
-            session_data = user_sessions.get(sender_number, {})
-            live_matches = session_data.get("live_matches", [])
+            live_matches = state.get("live_matches", [])
             
             if 0 <= choice_index < len(live_matches):
                 match = live_matches[choice_index]
@@ -242,6 +242,7 @@ def handle_text_message(user_text, sender_number, state):
         except (ValueError, TypeError):
             send_message(sender_number, "Please reply with a number only.")
         return
+        
     elif state == "awaiting_email_recipient":
         if re.match(r"[^@]+@[^@]+\.[^@]+", user_text):
             user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipient": user_text}
@@ -444,7 +445,7 @@ def get_welcome_message(name=""):
         "8️⃣  *Live Cricket Scores* 🏏\n"
         "9️⃣  *AI Email Assistant* 📧\n\n"
         "📌 Reply with a number (1–9) to begin.\n\n"
-        "💡 _Hidden Feature: I also have a YouTube summarizer and an AI expense tracker!_"
+        "💡 _Hidden Feature: I'm also a YouTube summarizer and an AI expense tracker!_"
     )
 
 def send_welcome_message(to, name):
