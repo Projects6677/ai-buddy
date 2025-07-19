@@ -14,4 +14,3 @@ pytesseract
 pdf2image
 pandas
 openpyxl
-youtube-transcript-api
