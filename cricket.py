@@ -5,46 +5,67 @@ import requests
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
 
-def get_live_match_list():
-    """Fetches a list of all currently live cricket matches."""
+def get_combined_matches():
     if not RAPIDAPI_KEY or not RAPIDAPI_HOST:
-        return "API_ERROR"
+        return {"error": "❌ The Cricket API key or host is not configured."}
 
-    url = f"https://{RAPIDAPI_HOST}/matches/v1/live"
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": RAPIDAPI_HOST
     }
     
+    combined_matches = {"live": [], "upcoming": []}
+
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        data = response.json()
+        # --- 1. Fetch LIVE matches ---
+        live_url = f"https://{RAPIDAPI_HOST}/matches/v1/live"
+        live_response = requests.get(live_url, headers=headers, timeout=15)
+        live_response.raise_for_status()
+        live_data = live_response.json()
         
-        live_matches = []
-        if data.get("typeMatches"):
-            for match_type in data["typeMatches"]:
+        if live_data.get("typeMatches"):
+            for match_type in live_data["typeMatches"]:
                 for series_match in match_type.get("seriesMatches", []):
                     ad_wrapper = series_match.get("seriesAdWrapper")
                     if ad_wrapper and ad_wrapper.get("matches"):
                         for match in ad_wrapper["matches"]:
                             info = match.get("matchInfo", {})
                             if info.get("state") == "In Progress":
-                                match_data = {
+                                combined_matches["live"].append({
                                     "id": info.get("matchId"),
                                     "description": f"{info.get('team1', {}).get('teamName', 'T1')} vs {info.get('team2', {}).get('teamName', 'T2')}",
                                     "series": info.get("seriesName", "N/A")
-                                }
-                                live_matches.append(match_data)
+                                })
         
-        return live_matches
+        # --- 2. Fetch UPCOMING matches ---
+        upcoming_url = f"https://{RAPIDAPI_HOST}/matches/v1/upcoming"
+        upcoming_response = requests.get(upcoming_url, headers=headers, timeout=15)
+        upcoming_response.raise_for_status()
+        upcoming_data = upcoming_response.json()
+
+        if upcoming_data.get("typeMatches"):
+            for match_type in upcoming_data["typeMatches"]:
+                for series_match in match_type.get("seriesMatches", []):
+                    if series_match.get("seriesAdWrapper"):
+                        for match in series_match["seriesAdWrapper"].get("matches", []):
+                            info = match.get("matchInfo", {})
+                            if info.get("state") == "Upcoming":
+                                combined_matches["upcoming"].append({
+                                    "id": info.get("matchId"),
+                                    "description": f"{info.get('team1', {}).get('teamName', 'T1')} vs {info.get('team2', {}).get('teamName', 'T2')}",
+                                    "series": info.get("seriesName", "N/A"),
+                                    "start_time": info.get("startDate") # Store start time
+                                })
+
+        return combined_matches
 
     except Exception as e:
-        print(f"Cricket API Error (get_live_match_list): {e}")
-        return "API_ERROR"
+        print(f"Cricket API Error (get_combined_matches): {e}")
+        return {"error": "❌ Sorry, I couldn't fetch match data right now."}
+
 
 def get_score_for_match(match_id):
-    """Fetches the detailed score for a single match ID."""
+    # This function remains the same as before
     if not RAPIDAPI_KEY or not RAPIDAPI_HOST:
         return "❌ The Cricket API key or host is not configured."
     
