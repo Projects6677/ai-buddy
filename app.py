@@ -28,6 +28,7 @@ from grok_ai import (
 )
 from email_sender import send_email
 from cricket import get_combined_matches, get_score_for_match
+
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 # --- End of mock functions ---
@@ -110,15 +111,6 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
-            button_id = message["interactive"]["button_reply"]["id"]
-            if button_id.startswith("refresh_cricket_"):
-                match_id = button_id.split("_")[-1]
-                send_message(sender_number, "Refreshing score...")
-                score = get_score_for_match(match_id)
-                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
-            return "OK", 200
-
         if msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
@@ -158,7 +150,7 @@ def handle_document_message(message, sender_number, state):
 def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
     
-    # Smart Command Handling
+    # --- Smart Command Handling ---
     export_keywords = ['excel', 'sheet', 'report', 'export']
     youtube_keywords = ['youtube.com', 'youtu.be']
     cricket_keywords = ['cricket', 'score']
@@ -222,8 +214,6 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
         send_welcome_message(sender_number, name)
-
-    # --- FIX: Corrected the state check for cricket match selection ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_cricket_match_selection":
         try:
             choice_index = int(user_text) - 1
@@ -234,14 +224,13 @@ def handle_text_message(user_text, sender_number, state):
                 match_id = match["id"]
                 send_message(sender_number, f"Great! Fetching the score for *{match['description']}*...")
                 score = get_score_for_match(match_id)
-                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
+                send_message(sender_number, score) # Send score without button
                 user_sessions.pop(sender_number, None)
             else:
                 send_message(sender_number, "⚠️ Invalid number. Please pick a number from the list.")
         except (ValueError, TypeError):
             send_message(sender_number, "Please reply with a number only.")
         return
-        
     elif state == "awaiting_email_recipient":
         if re.match(r"[^@]+@[^@]+\.[^@]+", user_text):
             user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipient": user_text}
@@ -382,7 +371,7 @@ def handle_text_message(user_text, sender_number, state):
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def handle_cricket_request(sender_number):
-    send_message(sender_number, "Fetching all live and upcoming matches, please wait...")
+    send_message(sender_number, "Fetching live and upcoming matches, please wait...")
     match_data = get_combined_matches()
 
     if match_data.get("error"):
@@ -396,7 +385,6 @@ def handle_cricket_request(sender_number):
         send_message(sender_number, "No live or upcoming cricket matches found at the moment. 🏏")
         return
     
-    # Combine lists for selection
     all_selectable_matches = live_matches + upcoming_matches
     
     user_sessions[sender_number] = {
@@ -404,22 +392,18 @@ def handle_cricket_request(sender_number):
         "live_matches": all_selectable_matches
     }
 
-    # Format the list for the user to select
     response_text = ""
     current_match_number = 1
-
     if live_matches:
         response_text += "*--- LIVE NOW ---*\n"
         for match in live_matches:
             response_text += f"*{current_match_number}.* {match['description']}\n"
             current_match_number += 1
-    
     if upcoming_matches:
         response_text += "\n*--- UPCOMING ---*\n"
         for match in upcoming_matches:
             response_text += f"*{current_match_number}.* {match['description']}\n"
             current_match_number += 1
-
     response_text += "\nReply with the number of the match you want to follow."
     
     send_message(sender_number, response_text)
@@ -427,22 +411,7 @@ def handle_cricket_request(sender_number):
 def send_message(to, message, buttons=None):
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    
-    if buttons:
-        payload = {
-            "messaging_product": "whatsapp", "to": to, "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": message},
-                "action": {"buttons": [{"type": "reply", "reply": b} for b in buttons]}
-            }
-        }
-    else:
-        payload = {
-            "messaging_product": "whatsapp", "to": to, "type": "text",
-            "text": {"body": message, "preview_url": False}
-        }
-    
+    payload = { "messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False} }
     try:
         requests.post(url, headers=headers, json=payload, timeout=10)
     except requests.exceptions.RequestException as e:
@@ -463,7 +432,7 @@ def get_welcome_message(name=""):
         "8️⃣  *Live Cricket Scores* 🏏\n"
         "9️⃣  *AI Email Assistant* 📧\n\n"
         "📌 Reply with a number (1–9) to begin.\n\n"
-        "💡 _Hidden Feature: I'm also a YouTube summarizer and an AI expense tracker!_"
+        "💡 _Hidden Feature: I also have a YouTube summarizer and an AI expense tracker!_"
     )
 
 def send_welcome_message(to, name):
