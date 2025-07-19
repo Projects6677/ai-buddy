@@ -22,12 +22,7 @@ def is_expense_intent(text):
     The text is: "{text}"
     Respond with only the word "yes" or "no".
     """
-    payload = {
-        "model": GROK_MODEL_FAST,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
-        "max_tokens": 5
-    }
+    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "max_tokens": 5 }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=10)
         response.raise_for_status()
@@ -39,13 +34,8 @@ def is_expense_intent(text):
 
 # --- Main AI Chat & Grammar ---
 def ai_reply(prompt):
-    if not GROK_API_KEY:
-        return "❌ The Grok API key is not configured. This feature is disabled."
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7
-    }
+    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7 }
     try:
         res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         res.raise_for_status()
@@ -55,22 +45,14 @@ def ai_reply(prompt):
         return "⚠️ Sorry, I couldn't connect to the AI service right now."
 
 def correct_grammar_with_grok(text):
-    if not GROK_API_KEY:
-        return "❌ The Grok API key is not configured. This feature is disabled."
+    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
     system_prompt = """
     You are an expert grammar and spelling correction assistant. Correct the user's text.
     If the text is heavily misspelled or jumbled, interpret the user's likely intent and provide the most logical, natural-sounding correction.
     Only return the corrected text, without any explanation, preamble, or quotation marks.
     For example, if the user says 'herrr are you', the likely intent is 'How are you?'.
     """
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text}
-        ],
-        "temperature": 0.2
-    }
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}], "temperature": 0.2 }
     try:
         res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         res.raise_for_status()
@@ -94,10 +76,7 @@ def parse_expense_with_grok(text):
     If a place or timestamp is not mentioned, set its value to null.
     Only return the JSON object.
     """
-    payload = {
-        "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
+    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "response_format": {"type": "json_object"} }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         response.raise_for_status()
@@ -118,10 +97,7 @@ def parse_reminder_with_grok(text):
     The timestamp should be in a machine-readable format like 'YYYY-MM-DD HH:MM:SS'.
     Only return the JSON object.
     """
-    payload = {
-        "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
+    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "response_format": {"type": "json_object"} }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         response.raise_for_status()
@@ -142,10 +118,7 @@ def parse_currency_with_grok(text):
     Use standard 3-letter currency codes (e.g., USD, INR, EUR).
     Only return the JSON object.
     """
-    payload = {
-        "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1, "response_format": {"type": "json_object"}
-    }
+    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "response_format": {"type": "json_object"} }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
         response.raise_for_status()
@@ -167,10 +140,7 @@ def analyze_email_subject(subject):
     For a generic subject, just ask for the main point of the email.
     Only return the JSON object.
     """
-    payload = {
-        "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2, "response_format": {"type": "json_object"}
-    }
+    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2, "response_format": {"type": "json_object"} }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
         response.raise_for_status()
@@ -182,17 +152,9 @@ def analyze_email_subject(subject):
         return None
 
 def write_email_body_with_grok(prompt):
-    if not GROK_API_KEY:
-        return "❌ The Grok API key is not configured. This feature is disabled."
-    
-    # --- NEW: More strict system prompt ---
+    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
     system_prompt = "You are an expert email writing assistant. Based on the user's prompt, write a clear, professional, and well-formatted email body. Your entire response must consist *only* of the email body text. Do not include a subject line, greetings like 'Hello,', sign-offs like 'Sincerely,', or any preamble like 'Here is the email body:'."
-    
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        "temperature": 0.7
-    }
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}], "temperature": 0.7 }
     try:
         res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
         res.raise_for_status()
@@ -214,11 +176,7 @@ def edit_email_body(original_draft, edit_instruction):
     Apply the change and return only the complete, new version of the email body.
     Do not add any preamble, explanation, or quotation marks.
     """
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.5
-    }
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5 }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
         response.raise_for_status()
