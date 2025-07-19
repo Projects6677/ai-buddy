@@ -298,15 +298,19 @@ def handle_text_message(user_text, sender_number, state):
             try:
                 tz = pytz.timezone('Asia/Kolkata')
                 now = datetime.now(tz)
-                run_time = date_parser.parse(user_text, default=now)
+                run_time = date_parser.parse(user_text)
                 if run_time.tzinfo is None:
                     run_time = tz.localize(run_time)
                 if run_time < now:
-                    response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
-                else:
-                    scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[recipients, subject, body])
-                    response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-                    user_sessions.pop(sender_number, None)
+                    if run_time.date() == now.date():
+                        run_time += timedelta(days=1)
+                    else:
+                        response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
+                        if response_text: send_message(sender_number, response_text)
+                        return
+                scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[recipients, subject, body])
+                response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+                user_sessions.pop(sender_number, None)
             except date_parser.ParserError:
                 response_text = "I didn't understand that time. Please try again (e.g., 'now', 'tomorrow at 10am')."
     elif state == "awaiting_reminder":
