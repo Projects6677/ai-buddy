@@ -26,10 +26,7 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok
 )
-from youtube_summarizer import summarize_youtube_video
 from email_sender import send_email
-from cricket import get_combined_matches, get_score_for_match
-
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
 # --- End of mock functions ---
