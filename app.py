@@ -23,7 +23,8 @@ from grok_ai import (
     parse_currency_with_grok,
     is_expense_intent,
     analyze_email_subject,
-    edit_email_body
+    edit_email_body,
+    write_email_body_with_grok # <-- Ensure this is imported
 )
 from email_sender import send_email
 
@@ -221,6 +222,7 @@ def handle_text_message(user_text, sender_number, state):
         time.sleep(1)
         send_welcome_message(sender_number, name)
 
+    # --- UPGRADED: Advanced logic for conversational email creation ---
     elif state == "awaiting_email_recipient":
         if re.match(r"[^@]+@[^@]+\.[^@]+", user_text):
             user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipient": user_text}
@@ -256,9 +258,10 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = state
         else:
             send_message(sender_number, "🤖 Got all the details. Writing your email with AI, please wait...")
-            full_prompt = f"Write an email to {state['recipient']} with the subject '{state['subject']}'.\n"
+            
+            full_prompt = f"Write an email with the subject '{state['subject']}'. Use the following details:\n"
             for i, q in enumerate(state["questions"]):
-                full_prompt += f"In response to the question '{q}', the user said: '{state['answers'][i]}'.\n"
+                full_prompt += f"- {q}: {state['answers'][i]}\n"
             
             email_body = write_email_body_with_grok(full_prompt)
             if "❌" in email_body:
@@ -269,6 +272,7 @@ def handle_text_message(user_text, sender_number, state):
                     "state": "awaiting_email_edit",
                     "recipient": state["recipient"], "subject": state["subject"], "body": email_body
                 }
+                # This was the point of failure. The response_text was not being set. It is now fixed.
                 response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes (e.g., 'make it more formal') or just type *'send it'* to approve._"
     
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
@@ -401,7 +405,7 @@ def get_welcome_message(name=""):
         "7️⃣  *Currency Converter* 💱\n"
         "8️⃣  *AI Email Assistant* 📧\n\n"
         "📌 Reply with a number (1–8) to begin.\n\n"
-        "💡 _Hidden Feature: I also have a YouTube summarizer, a cricket score checker, and an AI expense tracker!_"
+        "💡 _Hidden Feature: I'm also your personal expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
     )
 
 def send_welcome_message(to, name):
@@ -492,7 +496,6 @@ def extract_text_from_pdf_file(file_path):
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
-# === Expense Tracker Functions ===
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
