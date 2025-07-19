@@ -24,9 +24,11 @@ from grok_ai import (
     is_expense_intent,
     analyze_email_subject,
     edit_email_body,
-    write_email_body_with_grok # <-- Ensure this is imported
+    write_email_body_with_grok
 )
+from youtube_summarizer import summarize_youtube_video
 from email_sender import send_email
+from cricket import get_live_match_list, get_score_for_match
 
 # --- Mock functions for other modules ---
 def translate_text(text): return f"🌍 Translated text: `{text}`"
@@ -41,10 +43,10 @@ ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
 
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
@@ -110,6 +112,16 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
+        # Handle button replies for cricket score refresh
+        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
+            button_id = message["interactive"]["button_reply"]["id"]
+            if button_id.startswith("refresh_cricket_"):
+                match_id = button_id.split("_")[-1]
+                send_message(sender_number, "Refreshing score...")
+                score = get_score_for_match(match_id)
+                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
+            return "OK", 200
+
         if msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
@@ -161,9 +173,7 @@ def handle_text_message(user_text, sender_number, state):
         return
 
     if all(keyword in user_text_lower for keyword in cricket_keywords) and not state:
-        send_message(sender_number, "Fetching live scores, please wait...")
-        scores = get_live_scores()
-        send_message(sender_number, scores)
+        handle_cricket_request(sender_number)
         return
 
     if any(keyword in user_text_lower for keyword in export_keywords) and not state:
@@ -184,13 +194,7 @@ def handle_text_message(user_text, sender_number, state):
             for expense in expenses:
                 cost = expense.get('cost')
                 if isinstance(cost, (int, float)):
-                    confirmation = log_expense(
-                        sender_number, 
-                        cost, 
-                        expense.get('item'), 
-                        expense.get('place'), 
-                        expense.get('timestamp')
-                    )
+                    confirmation = log_expense(sender_number, cost, expense.get('item'), expense.get('place'), expense.get('timestamp'))
                     confirmations.append(confirmation)
                 else:
                     confirmations.append(f"❓ Could not log '{expense.get('item')}' - cost is unclear.")
@@ -221,60 +225,58 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
         send_welcome_message(sender_number, name)
-
-    # --- UPGRADED: Advanced logic for conversational email creation ---
+    elif state == "awaiting_cricket_match_selection":
+        try:
+            choice_index = int(user_text) - 1
+            session_data = user_sessions.get(sender_number, {})
+            live_matches = session_data.get("live_matches", [])
+            
+            if 0 <= choice_index < len(live_matches):
+                match = live_matches[choice_index]
+                match_id = match["id"]
+                send_message(sender_number, f"Great! Fetching the score for *{match['description']}*...")
+                score = get_score_for_match(match_id)
+                send_message(sender_number, score, buttons=[{"id": f"refresh_cricket_{match_id}", "title": "🔄 Refresh"}])
+                user_sessions.pop(sender_number, None)
+            else:
+                send_message(sender_number, "⚠️ Invalid number. Please pick a number from the list.")
+        except (ValueError, TypeError):
+            send_message(sender_number, "Please reply with a number only.")
+        return
     elif state == "awaiting_email_recipient":
         if re.match(r"[^@]+@[^@]+\.[^@]+", user_text):
             user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipient": user_text}
             response_text = "✅ Got it. Now, what should the subject of the email be?"
         else:
             response_text = "⚠️ That doesn't look like a valid email address. Please try again."
-    
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_subject":
         subject = user_text
         send_message(sender_number, "👍 Great subject. Let me think of some follow-up questions...")
         questions = analyze_email_subject(subject)
-        
         if questions:
-            user_sessions[sender_number] = {
-                "state": "gathering_email_details",
-                "recipient": state["recipient"],
-                "subject": subject,
-                "questions": questions,
-                "answers": [],
-                "current_question_index": 0
-            }
+            user_sessions[sender_number] = {"state": "gathering_email_details", "recipient": state["recipient"], "subject": subject, "questions": questions, "answers": [], "current_question_index": 0}
             response_text = questions[0]
         else:
             user_sessions[sender_number] = {"state": "awaiting_email_prompt_fallback", "recipient": state["recipient"], "subject": subject}
             response_text = "Okay, I'll just need one main prompt. What should the email be about?"
-
     elif isinstance(state, dict) and state.get("state") == "gathering_email_details":
         state["answers"].append(user_text)
         state["current_question_index"] += 1
-        
         if state["current_question_index"] < len(state["questions"]):
             response_text = state["questions"][state["current_question_index"]]
             user_sessions[sender_number] = state
         else:
             send_message(sender_number, "🤖 Got all the details. Writing your email with AI, please wait...")
-            
             full_prompt = f"Write an email with the subject '{state['subject']}'. Use the following details:\n"
             for i, q in enumerate(state["questions"]):
                 full_prompt += f"- {q}: {state['answers'][i]}\n"
-            
             email_body = write_email_body_with_grok(full_prompt)
             if "❌" in email_body:
                 response_text = email_body
                 user_sessions.pop(sender_number, None)
             else:
-                user_sessions[sender_number] = {
-                    "state": "awaiting_email_edit",
-                    "recipient": state["recipient"], "subject": state["subject"], "body": email_body
-                }
-                # This was the point of failure. The response_text was not being set. It is now fixed.
+                user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipient": state["recipient"], "subject": state["subject"], "body": email_body}
                 response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes (e.g., 'make it more formal') or just type *'send it'* to approve._"
-    
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
         prompt = user_text
         send_message(sender_number, "🤖 Writing your email with AI, please wait...")
@@ -283,12 +285,8 @@ def handle_text_message(user_text, sender_number, state):
             response_text = email_body
             user_sessions.pop(sender_number, None)
         else:
-            user_sessions[sender_number] = {
-                "state": "awaiting_email_edit",
-                "recipient": state["recipient"], "subject": state["subject"], "body": email_body
-            }
+            user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipient": state["recipient"], "subject": state["subject"], "body": email_body}
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send it'* to approve._"
-
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
         if user_text.lower() in ["send it", "ok send", "approve", "yes send", "send"]:
             send_message(sender_number, "✅ Okay, sending the email...")
@@ -302,7 +300,6 @@ def handle_text_message(user_text, sender_number, state):
                 response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send it'*._"
             else:
                 response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
-    
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number)
         user_sessions.pop(sender_number, None)
@@ -373,6 +370,9 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_currency_conversion"
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
+            handle_cricket_request(sender_number)
+            return
+        elif user_text == "9":
             user_sessions[sender_number] = "awaiting_email_recipient"
             response_text = "📧 *AI Email Assistant*\n\nWho is the recipient? Please enter their email address."
         else:
@@ -382,12 +382,51 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, response_text)
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
-def send_message(to, message):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+def handle_cricket_request(sender_number):
+    send_message(sender_number, "Fetching live matches, please wait...")
+    live_matches = get_live_match_list()
+
+    if live_matches == "API_ERROR":
+        send_message(sender_number, "❌ Sorry, I couldn't connect to the cricket service right now.")
+        return
+    
+    if not live_matches:
+        send_message(sender_number, "No live cricket matches found at the moment. 🏏")
+        return
+
+    user_sessions[sender_number] = {
+        "state": "awaiting_cricket_match_selection",
+        "live_matches": live_matches
+    }
+
+    response_text = "Here are the current live matches:\n\n"
+    for i, match in enumerate(live_matches):
+        response_text += f"*{i+1}.* {match['description']} _({match['series']})_\n"
+    response_text += "\nReply with the number of the match you want to follow."
+    
+    send_message(sender_number, response_text)
+
+def send_message(to, message, buttons=None):
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False}}
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    
+    if buttons:
+        payload = {
+            "messaging_product": "whatsapp", "to": to, "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": message},
+                "action": {"buttons": [{"type": "reply", "reply": b} for b in buttons]}
+            }
+        }
+    else:
+        payload = {
+            "messaging_product": "whatsapp", "to": to, "type": "text",
+            "text": {"body": message, "preview_url": False}
+        }
+    
     try:
-        requests.post(url, headers=headers, json=data, timeout=10)
+        requests.post(url, headers=headers, json=payload, timeout=10)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
 
@@ -403,9 +442,10 @@ def get_welcome_message(name=""):
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n"
         "7️⃣  *Currency Converter* 💱\n"
-        "8️⃣  *AI Email Assistant* 📧\n\n"
-        "📌 Reply with a number (1–8) to begin.\n\n"
-        "💡 _Hidden Feature: I'm also your personal expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
+        "8️⃣  *Live Cricket Scores* 🏏\n"
+        "9️⃣  *AI Email Assistant* 📧\n\n"
+        "📌 Reply with a number (1–9) to begin.\n\n"
+        "💡 _Hidden Feature: I also have a YouTube summarizer and an AI expense tracker!_"
     )
 
 def send_welcome_message(to, name):
@@ -496,6 +536,7 @@ def extract_text_from_pdf_file(file_path):
     except Exception as e:
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
+# === Expense Tracker Functions ===
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
