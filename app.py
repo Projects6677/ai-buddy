@@ -168,7 +168,13 @@ def handle_text_message(user_text, sender_number, state):
             for expense in expenses:
                 cost = expense.get('cost')
                 if isinstance(cost, (int, float)):
-                    confirmation = log_expense(sender_number, cost, expense.get('item'), expense.get('place'), expense.get('timestamp'))
+                    confirmation = log_expense(
+                        sender_number, 
+                        cost, 
+                        expense.get('item'), 
+                        expense.get('place'), 
+                        expense.get('timestamp')
+                    )
                     confirmations.append(confirmation)
                 else:
                     confirmations.append(f"❓ Could not log '{expense.get('item')}' - cost is unclear.")
@@ -200,20 +206,22 @@ def handle_text_message(user_text, sender_number, state):
         time.sleep(1)
         send_welcome_message(sender_number, name)
     elif state == "awaiting_email_recipient":
-        if re.match(r"[^@]+@[^@]+\.[^@]+", user_text):
-            user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipient": user_text}
-            response_text = "✅ Got it. Now, what should the subject of the email be?"
+        recipients = [email.strip() for email in user_text.split(',')]
+        valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
+        if valid_recipients:
+            user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipients": valid_recipients}
+            response_text = f"✅ Got recipient(s). Now, what should the subject of the email be?"
         else:
-            response_text = "⚠️ That doesn't look like a valid email address. Please try again."
+            response_text = "⚠️ I couldn't find any valid email addresses. Please try again."
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_subject":
         subject = user_text
         send_message(sender_number, "👍 Great subject. Let me think of some follow-up questions...")
         questions = analyze_email_subject(subject)
         if questions:
-            user_sessions[sender_number] = {"state": "gathering_email_details", "recipient": state["recipient"], "subject": subject, "questions": questions, "answers": [], "current_question_index": 0}
+            user_sessions[sender_number] = {"state": "gathering_email_details", "recipients": state["recipients"], "subject": subject, "questions": questions, "answers": [], "current_question_index": 0}
             response_text = questions[0]
         else:
-            user_sessions[sender_number] = {"state": "awaiting_email_prompt_fallback", "recipient": state["recipient"], "subject": subject}
+            user_sessions[sender_number] = {"state": "awaiting_email_prompt_fallback", "recipients": state["recipients"], "subject": subject}
             response_text = "Okay, I'll just need one main prompt. What should the email be about?"
     elif isinstance(state, dict) and state.get("state") == "gathering_email_details":
         state["answers"].append(user_text)
@@ -231,8 +239,8 @@ def handle_text_message(user_text, sender_number, state):
                 response_text = email_body
                 user_sessions.pop(sender_number, None)
             else:
-                user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipient": state["recipient"], "subject": state["subject"], "body": email_body}
-                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes (e.g., 'make it more formal') or just type *'send it'* to approve._"
+                user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
+                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes (e.g., 'make it more formal') or just type *'send'* to approve._"
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
         prompt = user_text
         send_message(sender_number, "🤖 Writing your email with AI, please wait...")
@@ -241,21 +249,42 @@ def handle_text_message(user_text, sender_number, state):
             response_text = email_body
             user_sessions.pop(sender_number, None)
         else:
-            user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipient": state["recipient"], "subject": state["subject"], "body": email_body}
-            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send it'* to approve._"
+            user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
+            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send'* to approve._"
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
-        if user_text.lower() in ["send it", "ok send", "approve", "yes send", "send"]:
-            send_message(sender_number, "✅ Okay, sending the email...")
-            response_text = send_email(state["recipient"], state["subject"], state["body"])
-            user_sessions.pop(sender_number, None)
+        if user_text.lower() in ["send", "ok send", "approve", "yes send"]:
+            user_sessions[sender_number]["state"] = "awaiting_email_schedule"
+            response_text = "✅ Draft approved. Send it *now* or *schedule it* for a later time?\n\n_Example: `tomorrow at 9am`_"
         else:
             send_message(sender_number, "✏️ Applying your changes, please wait...")
             new_body = edit_email_body(state["body"], user_text)
             if new_body:
                 user_sessions[sender_number]["body"] = new_body
-                response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send it'*._"
+                response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send'*._"
             else:
                 response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
+    elif isinstance(state, dict) and state.get("state") == "awaiting_email_schedule":
+        recipients = state["recipients"]
+        subject = state["subject"]
+        body = state["body"]
+        if user_text.lower() == "now":
+            send_message(sender_number, "Okay, sending the email now...")
+            response_text = send_email(recipients, subject, body)
+        else:
+            try:
+                tz = pytz.timezone('Asia/Kolkata')
+                now = datetime.now(tz)
+                run_time = date_parser.parse(user_text, default=now)
+                if run_time.tzinfo is None:
+                    run_time = tz.localize(run_time)
+                if run_time < now:
+                    response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
+                else:
+                    scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[recipients, subject, body])
+                    response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+            except date_parser.ParserError:
+                response_text = "I didn't understand that time. Please try again (e.g., 'now', 'tomorrow at 10am')."
+        user_sessions.pop(sender_number, None)
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number)
         user_sessions.pop(sender_number, None)
@@ -327,7 +356,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             user_sessions[sender_number] = "awaiting_email_recipient"
-            response_text = "📧 *AI Email Assistant*\n\nWho is the recipient? Please enter their email address."
+            response_text = "📧 *AI Email Assistant*\n\nWho is the recipient? Please enter their email address(es), separated by commas."
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
