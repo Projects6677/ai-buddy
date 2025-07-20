@@ -87,9 +87,20 @@ def download_media_from_whatsapp(media_id):
         response.raise_for_status()
         media_info = response.json()
         media_url = media_info['url']
+        
+        # --- GET ORIGINAL FILENAME ---
+        original_filename = "attached_file" # Fallback
+        if 'document' in media_info: # This part is speculative as API response varies
+            original_filename = media_info['document'].get('filename', original_filename)
+        
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
-        temp_filename = secure_filename(media_id)
+        
+        # Use a secure version of the original filename if possible
+        temp_filename = secure_filename(original_filename)
+        if not temp_filename: # If filename is empty or invalid
+            temp_filename = secure_filename(media_id)
+
         file_path = os.path.join("uploads", temp_filename)
         with open(file_path, "wb") as f: f.write(download_response.content)
         return file_path
@@ -124,6 +135,22 @@ def webhook():
 # === MESSAGE HANDLERS ===
 def handle_document_message(message, sender_number, state):
     media_id = message["document"]["id"]
+    filename = message["document"].get("filename", "attached_file") # Get filename
+    
+    # --- NEW: Handle Email Attachments ---
+    if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
+        send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
+        downloaded_path = download_media_from_whatsapp(media_id)
+        if downloaded_path:
+            state["attachment_path"] = downloaded_path
+            state["state"] = "awaiting_email_edit" # Go back to the edit/send state
+            user_sessions[sender_number] = state
+            response_text = f"✅ File attached successfully!\n\nReview the draft below, ask for more changes, or type *'send'* to send the email with the attachment."
+            send_message(sender_number, response_text)
+        else:
+            send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
+        return
+
     send_message(sender_number, f"Got your file! 📄 Processing...")
     downloaded_path = download_media_from_whatsapp(media_id)
     if not downloaded_path:
@@ -142,6 +169,7 @@ def handle_document_message(message, sender_number, state):
         if os.path.exists(output_docx_path): os.remove(output_docx_path)
     else:
         send_message(sender_number, "I received a file, but I wasn't expecting one. Try the menu first!")
+    
     if os.path.exists(downloaded_path): os.remove(downloaded_path)
     user_sessions.pop(sender_number, None)
 
@@ -241,7 +269,7 @@ def handle_text_message(user_text, sender_number, state):
                 user_sessions.pop(sender_number, None)
             else:
                 user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
-                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes (e.g., 'make it more formal') or just type *'send'* to approve._"
+                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
         prompt = user_text
         send_message(sender_number, "🤖 Writing your email with AI, please wait...")
@@ -251,12 +279,19 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions.pop(sender_number, None)
         else:
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
-            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send'* to approve._"
+            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
     
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
-        if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
+        if user_text_lower == "attach":
+            state["state"] = "awaiting_email_attachment"
+            user_sessions[sender_number] = state
+            response_text = "📎 Please upload the file you want to attach."
+        elif user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email now...")
-            response_text = send_email(state["recipients"], state["subject"], state["body"])
+            attachment_path = state.get("attachment_path")
+            response_text = send_email(state["recipients"], state["subject"], state["body"], attachment_path)
+            if attachment_path and os.path.exists(attachment_path):
+                os.remove(attachment_path) # Clean up the file
             user_sessions.pop(sender_number, None)
         else:
             approval_words = ["send", "approve"]
@@ -278,8 +313,10 @@ def handle_text_message(user_text, sender_number, state):
                     if run_time < now:
                          response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
                     else:
-                        scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"]])
+                        attachment_path = state.get("attachment_path") # Pass attachment to scheduled job
+                        scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"], attachment_path])
                         response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+                        # Note: The temp file for attachment won't be auto-cleaned here, a more robust cleanup mechanism would be needed for scheduled sends.
                     user_sessions.pop(sender_number, None)
                 except date_parser.ParserError:
                     response_text = "✅ Draft approved, but I didn't understand that time. Please try again."
@@ -288,7 +325,7 @@ def handle_text_message(user_text, sender_number, state):
                 new_body = edit_email_body(state["body"], user_text)
                 if new_body:
                     user_sessions[sender_number]["body"] = new_body
-                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes or type *'send'*._"
+                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
 
