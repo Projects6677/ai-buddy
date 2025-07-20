@@ -23,8 +23,8 @@ Convert between:
 - 📄 PDF ➡️ Word
 - 📝 Text ➡️ Word
 
-### 🌍 5. Translator  
-Translate text (custom logic currently placeholder).
+### 🌍 5. AI Translator  
+Translate text from any language to any using AI
 
 ### ⛅ 6. Weather Bot  
 Get live weather updates for any city using OpenWeather API.
@@ -124,14 +124,6 @@ ai-buddy/
 ## 🔐 Notes
 - Do NOT hardcode API keys — use `.env` securely.
 - Use `os.getenv()` in your code for config access.
-
----
-
-## 🚀 Future Plans
-- Voice note to text
-- Google Calendar integration for reminders
-- Image captioning (via Vision models)
-- Support for group chats
 
 ---
 
