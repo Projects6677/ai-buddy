@@ -28,13 +28,11 @@ from grok_ai import (
     analyze_email_subject,
     edit_email_body,
     write_email_body_with_grok,
-    translate_with_grok  # --- IMPORT THE NEW FUNCTION ---
+    translate_with_grok
 )
 from email_sender import send_email
 # Import the daily briefing services
 from services import get_daily_quote, get_on_this_day_facts
-
-# --- REMOVED MOCK FUNCTION ---
 
 app = Flask(__name__)
 
@@ -303,9 +301,7 @@ def handle_text_message(user_text, sender_number, state):
     elif state == "awaiting_ai":
         response_text = ai_reply(user_text)
     elif state == "awaiting_translation":
-        # --- USE THE NEW GROK TRANSLATION FUNCTION ---
         response_text = translate_with_grok(user_text)
-        # We don't pop the session here, so the user can continue translating
     elif state == "awaiting_weather":
         response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
@@ -358,8 +354,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = get_conversion_menu()
         elif user_text == "5":
             user_sessions[sender_number] = "awaiting_translation"
-            # --- UPDATED PROMPT FOR TRANSLATION ---
-            response_text = "🌍 *AI Translator Active!*\n\nHow can I help you translate today?\n\n_Examples:_\n- _Translate 'I love programming' to French._\n- _To Spanish: Where is the library?_"
+            response_text = "🌍 *AI Translator Active!*\n\nHow can I help you translate today?\n\n_Examples:_\n- _Translate 'I love programming' to French._\n- _How do you say 'Where is the library?' in Spanish?_"
         elif user_text == "6":
             user_sessions[sender_number] = "awaiting_weather"
             response_text = "🏙️ Enter a city or location to get the current weather."
