@@ -509,6 +509,11 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A":
         log_message += f" at *{place.title()}*"
+    
+    # Add a formatted date to the confirmation message if it's not from today
+    if expense_time.date() != datetime.now(pytz.timezone('Asia/Kolkata')).date():
+        log_message += f" on *{expense_time.strftime('%B %d')}*"
+        
     return log_message
 
 def export_expenses_to_excel(sender_number):
