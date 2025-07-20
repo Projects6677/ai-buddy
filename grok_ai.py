@@ -69,8 +69,9 @@ def parse_expense_with_grok(text):
     if not GROK_API_KEY: return None
     prompt = f"""
     You are an expert expense parsing assistant. Your task is to extract all expenses from the user's text.
+    The current date is {datetime.now().strftime('%Y-%m-%d')}.
     The text is: "{text}"
-    Extract the cost (as a number), the item purchased, the place of purchase (if mentioned), and the timestamp (if mentioned).
+    Extract the cost (as a number), the item purchased, the place of purchase (if mentioned), and the timestamp (if mentioned, like "yesterday" or "July 17th").
     Return the result as a JSON object with a single key "expenses" which is an array of objects.
     Each object must have keys "cost", "item", "place", and "timestamp".
     If a place or timestamp is not mentioned, set its value to null.
