@@ -71,7 +71,7 @@ def parse_expense_with_grok(text):
     You are an expert expense parsing assistant. Your task is to extract all expenses from the user's text.
     The text is: "{text}"
     Extract the cost (as a number), the item purchased, the place of purchase (if mentioned), and the timestamp (if mentioned).
-    Return the result as a JSON object with a single key "expenses" which is an array of objects. 
+    Return the result as a JSON object with a single key "expenses" which is an array of objects.
     Each object must have keys "cost", "item", "place", and "timestamp".
     If a place or timestamp is not mentioned, set its value to null.
     Only return the JSON object.
@@ -113,7 +113,7 @@ def parse_currency_with_grok(text):
     prompt = f"""
     You are an expert currency conversion parser. From the user's text, extract all requests to convert money.
     The user's text is: "{text}"
-    Return a JSON object with a single key "conversions" which is an array of objects. 
+    Return a JSON object with a single key "conversions" which is an array of objects.
     Each object must have keys "amount", "from_currency", and "to_currency".
     Use standard 3-letter currency codes (e.g., USD, INR, EUR).
     Only return the JSON object.
@@ -172,7 +172,7 @@ def edit_email_body(original_draft, edit_instruction):
     --- END DRAFT ---
 
     The user wants to make a change. Their instruction is: "{edit_instruction}"
-    
+
     Apply the change and return only the complete, new version of the email body.
     Do not add any preamble, explanation, or quotation marks.
     """
@@ -184,3 +184,31 @@ def edit_email_body(original_draft, edit_instruction):
     except Exception as e:
         print(f"Grok email editing error: {e}")
         return None
+
+def translate_with_grok(text):
+    if not GROK_API_KEY:
+        return "❌ The Grok API key is not configured. This feature is disabled."
+    
+    # Check if the user has specified a language, otherwise ask for it
+    if ":" not in text:
+        return "Please specify the language to translate to. For example: 'translate Hello to Spanish' or 'to Spanish: Hello'"
+
+    system_prompt = "You are a translation assistant. The user will provide text and a target language. Your task is to provide the translation. Only return the translated text, nothing else."
+    
+    payload = {
+        "model": GROK_MODEL_SMART,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ],
+        "temperature": 0.3
+    }
+    
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
+        response.raise_for_status()
+        translated_text = response.json()["choices"][0]["message"]["content"].strip()
+        return f"🌍 Translated:\n\n_{translated_text}_"
+    except Exception as e:
+        print(f"Grok Translation error: {e}")
+        return "⚠️ Sorry, the translation service is currently unavailable."
