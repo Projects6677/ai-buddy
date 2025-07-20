@@ -1,3 +1,5 @@
+# app.py
+
 from flask import Flask, request
 import requests
 import os
@@ -14,6 +16,7 @@ from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
+
 from currency import convert_currency
 from grok_ai import (
     ai_reply,
@@ -27,10 +30,12 @@ from grok_ai import (
     write_email_body_with_grok
 )
 from email_sender import send_email
+# Import the daily briefing services
+from services import get_daily_quote, get_on_this_day_facts
 
-# --- Mock functions for other modules ---
+# Mock functions for other modules
 def translate_text(text): return f"🌍 Translated text: `{text}`"
-# --- End of mock functions ---
+# End of mock functions
 
 
 app = Flask(__name__)
@@ -252,15 +257,12 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can now ask for changes or just type *'send'* to approve._"
     
-    # --- CORRECTED: This block now handles all approval cases correctly ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
-        # Case 1: Simple approval command like "send" or "send it"
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email now...")
             response_text = send_email(state["recipients"], state["subject"], state["body"])
             user_sessions.pop(sender_number, None)
         else:
-            # Case 2: Approval with a time, e.g., "send tomorrow at 5pm"
             approval_words = ["send", "approve"]
             is_schedule_command = False
             time_string = ""
@@ -285,7 +287,7 @@ def handle_text_message(user_text, sender_number, state):
                     user_sessions.pop(sender_number, None)
                 except date_parser.ParserError:
                     response_text = "✅ Draft approved, but I didn't understand that time. Please try again."
-            else: # Case 3: It's an edit request
+            else:
                 send_message(sender_number, "✏️ Applying your changes, please wait...")
                 new_body = edit_email_body(state["body"], user_text)
                 if new_body:
@@ -384,6 +386,7 @@ def send_message(to, message):
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
+    # --- UPDATED: Removed option 9 from the menu ---
     return (
         f"{name_line}\n\n"
         "How can I assist you today?\n\n"
@@ -396,7 +399,8 @@ def get_welcome_message(name=""):
         "7️⃣  *Currency Converter* 💱\n"
         "8️⃣  *AI Email Assistant* 📧\n\n"
         "📌 Reply with a number (1–8) to begin.\n\n"
-        "💡 _Hidden Feature: I'm also an AI expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
+        "💡 _You'll automatically receive a Daily Briefing with a quote and historical facts every morning!_\n\n"
+        "✨ _Hidden Feature: I'm also an AI expense tracker! Just tell me what you spent and ask for your data anytime with `Give Excel Sheet`._"
     )
 
 def send_welcome_message(to, name):
@@ -526,7 +530,51 @@ def export_expenses_to_excel(sender_number):
     df.to_excel(file_path, index=False, engine='openpyxl')
     return file_path
 
-# === RUN APP ===
+# --- UPDATED: Simplified scheduled job to send to ALL users ---
+def send_daily_briefing():
+    """
+    Gets a quote and 'On This Day' facts, then sends them to all registered users.
+    """
+    print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
+    all_users = load_user_data()
+    if not all_users:
+        print("No users found in user_data.json. Skipping job.")
+        return
+
+    # Fetch the content once for all users to be efficient
+    quote = get_daily_quote()
+    facts = get_on_this_day_facts()
+
+    briefing_message = (
+        "☀️ *Good Morning! Here is your Daily Briefing.*\n\n"
+        "💡 *Quote of the Day*\n"
+        f"_{quote}_\n\n"
+        "🗓️ *On This Day in History*\n"
+        f"{facts}"
+    )
+    
+    print(f"Found {len(all_users)} user(s) to send the briefing to.")
+    for user_id in all_users.keys():
+        print(f"Sending daily briefing to {user_id}")
+        # The 'user_id' is the sender's WhatsApp number
+        send_message(user_id, briefing_message)
+        time.sleep(1) # Small delay to avoid potential rate-limiting
+            
+    print("--- Daily Briefing Job Finished ---")
+
+# --- RUN APP ---
 if __name__ == '__main__':
+    # --- Schedule the daily briefing job ---
+    # This will run the job every day at 8:00 AM India time.
+    scheduler.add_job(
+        func=send_daily_briefing,
+        trigger='cron',
+        hour=8,
+        minute=0,
+        timezone='Asia/Kolkata',
+        id='daily_briefing_job',
+        replace_existing=True
+    )
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
