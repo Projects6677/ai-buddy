@@ -189,11 +189,7 @@ def translate_with_grok(text):
     if not GROK_API_KEY:
         return "❌ The Grok API key is not configured. This feature is disabled."
     
-    # Check if the user has specified a language, otherwise ask for it
-    if ":" not in text:
-        return "Please specify the language to translate to. For example: 'translate Hello to Spanish' or 'to Spanish: Hello'"
-
-    system_prompt = "You are a translation assistant. The user will provide text and a target language. Your task is to provide the translation. Only return the translated text, nothing else."
+    system_prompt = "You are a translation assistant. The user will provide text to be translated, and they will specify the target language. Your task is to provide the translation. Only return the translated text, without any additional comments or explanations."
     
     payload = {
         "model": GROK_MODEL_SMART,
