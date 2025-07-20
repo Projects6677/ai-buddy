@@ -14,5 +14,3 @@ pytesseract
 pdf2image
 pandas
 openpyxl
-pytesseract
-pillow
