@@ -450,6 +450,51 @@ def send_welcome_message(to, name):
     menu_text = get_welcome_message(name)
     send_message(to, menu_text)
 
+def schedule_reminder(text, sender_number):
+    """
+    Parses reminder text using Grok AI and schedules it.
+    """
+    # Use the Grok AI function to understand the user's request
+    task, timestamp_str = parse_reminder_with_grok(text)
+
+    # Check if the AI successfully extracted the details
+    if not task or not timestamp_str:
+        return "❌ I couldn't understand the reminder. Please try again, for example: 'Remind me to call Mom tomorrow at 5 PM'."
+
+    try:
+        # Set the timezone to ensure times are handled correctly
+        tz = pytz.timezone('Asia/Kolkata')
+        
+        # Parse the timestamp string provided by the AI
+        run_time = date_parser.parse(timestamp_str)
+
+        # Make sure the parsed time is timezone-aware
+        if run_time.tzinfo is None:
+            run_time = tz.localize(run_time)
+
+        now = datetime.now(tz)
+
+        # Prevent setting reminders for the past
+        if run_time < now:
+            return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) seems to be in the past. Please specify a future time."
+
+        # Use the scheduler to set the reminder
+        scheduler.add_job(
+            func=send_message,
+            trigger='date',
+            run_date=run_time,
+            args=[sender_number, f"⏰ Reminder: {task}"],
+            id=f"reminder_{sender_number}_{int(run_time.timestamp())}", # Create a unique ID
+            replace_existing=True
+        )
+
+        # Confirm with the user that the reminder is set
+        return f"✅ Reminder set! I will remind you to '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+
+    except Exception as e:
+        print(f"An unexpected error occurred in schedule_reminder: {e}")
+        return "❌ An unexpected error occurred while setting your reminder."
+
 def get_conversion_menu():
     return (
         "📁 *File/Text Conversion Menu*\n\n"
