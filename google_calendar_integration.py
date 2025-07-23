@@ -69,27 +69,31 @@ def create_google_calendar_event(credentials, task, run_time):
     try:
         service = build('calendar', 'v3', credentials=credentials)
         
-        # Google calendar events need a start and end time. Default to 30 minutes.
         end_time = run_time + timedelta(minutes=30)
 
+        # --- MODIFICATION START ---
+        # The fix is to provide a timezone-naive datetime string to the API
+        # and specify the timezone separately. This avoids ambiguity.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
-                'dateTime': run_time.isoformat(),
-                'timeZone': 'Asia/Kolkata',
+                'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'), # Naive time string
+                'timeZone': 'Asia/Kolkata', # Explicit timezone
             },
             'end': {
-                'dateTime': end_time.isoformat(),
-                'timeZone': 'Asia/Kolkata',
+                'dateTime': end_time.strftime('%Y-%m-%dT%H:%M:%S'), # Naive time string
+                'timeZone': 'Asia/Kolkata', # Explicit timezone
             },
             'reminders': {
                 'useDefault': True,
             },
         }
+        # --- MODIFICATION END ---
 
         created_event = service.events().insert(calendarId='primary', body=event).execute()
         
+        # The confirmation message uses the original 'run_time' object, which is correct.
         return f"✅ Event '{task}' created in your Google Calendar for *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
 
     except Exception as e:
