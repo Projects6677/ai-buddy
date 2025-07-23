@@ -16,6 +16,7 @@ from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from currency import convert_currency
 from grok_ai import (
@@ -36,6 +37,7 @@ from services import get_daily_quote, get_on_this_day_facts
 from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 # --- NEW: Add a secret key for Flask session management ---
 app.secret_key = os.urandom(24) 
 
