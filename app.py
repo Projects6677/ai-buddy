@@ -1,6 +1,6 @@
 # app.py
 
-from flask import Flask, request
+from flask import Flask, request, redirect, session, url_for
 import requests
 import os
 import time
@@ -31,10 +31,13 @@ from grok_ai import (
     translate_with_grok
 )
 from email_sender import send_email
-# Import the daily briefing services
 from services import get_daily_quote, get_on_this_day_facts
+# --- NEW: Import Google Calendar functions ---
+from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
 
 app = Flask(__name__)
+# --- NEW: Add a secret key for Flask session management ---
+app.secret_key = os.urandom(24) 
 
 # === CONFIG ===
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
@@ -48,7 +51,6 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
-# --- Initialize the Scheduler ---
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 scheduler.start()
 
@@ -70,6 +72,37 @@ def save_user_data(data):
 @app.route('/')
 def home():
     return "WhatsApp AI Assistant is Live!"
+
+# --- NEW: GOOGLE AUTHENTICATION ROUTES ---
+@app.route('/google-auth')
+def google_auth():
+    sender_number = request.args.get('state')
+    session['sender_number'] = sender_number # Store sender_number in session
+    flow = get_google_auth_flow()
+    authorization_url, _ = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        state=sender_number
+    )
+    return redirect(authorization_url)
+
+@app.route('/google-auth/callback')
+def google_auth_callback():
+    state = request.args.get('state')
+    sender_number = state # The state is the user's phone number
+    
+    flow = get_google_auth_flow()
+    flow.fetch_token(authorization_response=request.url)
+    credentials = flow.credentials
+    
+    save_credentials(sender_number, credentials)
+    
+    # Let the user know it was successful
+    send_message(sender_number, "✅ Your Google Calendar has been successfully connected! You can now set reminders and they will be added to your calendar.")
+    
+    user_sessions.pop(sender_number, None) # Clean up session state
+    return "Authentication successful! You can return to WhatsApp."
+
 
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -339,9 +372,62 @@ def handle_text_message(user_text, sender_number, state):
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
 
+    # --- UPDATED: Reminder flow to include choice ---
     elif state == "awaiting_reminder":
-        response_text = schedule_reminder(user_text, sender_number)
-        user_sessions.pop(sender_number, None)
+        # First, parse the reminder to see if it's valid
+        task, timestamp_str = parse_reminder_with_grok(user_text)
+        if not task or not timestamp_str:
+            response_text = "❌ I couldn't understand the reminder. Please try again, for example: 'Remind me to call Mom tomorrow at 5 PM'."
+        else:
+            # Store the parsed info and ask for the reminder type
+            user_sessions[sender_number] = {
+                "state": "awaiting_reminder_type_choice",
+                "task": task,
+                "timestamp_str": timestamp_str
+            }
+            response_text = (
+                "Got it. How would you like me to remind you?\n\n"
+                "1️⃣ Send a WhatsApp Message\n"
+                "2️⃣ Add to Google Calendar"
+            )
+
+    # --- NEW: Handle the user's reminder type choice ---
+    elif isinstance(state, dict) and state.get("state") == "awaiting_reminder_type_choice":
+        choice = user_text.strip()
+        task = state["task"]
+        timestamp_str = state["timestamp_str"]
+
+        if choice == "1": # WhatsApp Reminder
+            response_text = schedule_whatsapp_reminder(task, timestamp_str, sender_number)
+            user_sessions.pop(sender_number, None)
+        elif choice == "2": # Google Calendar Reminder
+            credentials = get_credentials(sender_number)
+            if not credentials:
+                # If no credentials, start the auth flow
+                auth_url = url_for('google_auth', state=sender_number, _external=True)
+                response_text = (
+                    "To connect to your calendar, please use the link below to grant permission. You only need to do this once.\n\n"
+                    f"🔗 [Click here to authorize]({auth_url})\n\n"
+                    "After authorizing, please set your reminder again."
+                )
+                user_sessions.pop(sender_number, None) # Clear state to let them restart
+            else:
+                # If we have credentials, create the event
+                try:
+                    tz = pytz.timezone('Asia/Kolkata')
+                    run_time = date_parser.parse(timestamp_str)
+                    if run_time.tzinfo is None:
+                        run_time = tz.localize(run_time)
+                    
+                    response_text = create_google_calendar_event(credentials, task, run_time)
+                    user_sessions.pop(sender_number, None)
+                except Exception as e:
+                    print(f"Error parsing timestamp for Google Calendar: {e}")
+                    response_text = "❌ An unexpected error occurred while setting your calendar event."
+        else:
+            response_text = "Please choose a valid option by replying with *1* or *2*."
+
+
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
@@ -429,11 +515,11 @@ def send_message(to, message):
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
-    # --- UPDATED: Removed option 9 from the menu ---
+    # --- UPDATED: Reminder can now be via WhatsApp or Google Calendar ---
     return (
         f"{name_line}\n\n"
         "How can I assist you today?\n\n"
-        "1️⃣  *Set a Reminder* ⏰\n"
+        "1️⃣  *Set a Reminder* (WhatsApp or Google Calendar) ⏰\n"
         "2️⃣  *Fix Grammar* ✍️\n"
         "3️⃣  *Ask AI Anything* 💬\n"
         "4️⃣  *File/Text Conversion* 📄\n"
@@ -450,49 +536,32 @@ def send_welcome_message(to, name):
     menu_text = get_welcome_message(name)
     send_message(to, menu_text)
 
-def schedule_reminder(text, sender_number):
+def schedule_whatsapp_reminder(task, timestamp_str, sender_number):
     """
-    Parses reminder text using Grok AI and schedules it.
+    Schedules a reminder to be sent via WhatsApp message.
     """
-    # Use the Grok AI function to understand the user's request
-    task, timestamp_str = parse_reminder_with_grok(text)
-
-    # Check if the AI successfully extracted the details
-    if not task or not timestamp_str:
-        return "❌ I couldn't understand the reminder. Please try again, for example: 'Remind me to call Mom tomorrow at 5 PM'."
-
     try:
-        # Set the timezone to ensure times are handled correctly
         tz = pytz.timezone('Asia/Kolkata')
-        
-        # Parse the timestamp string provided by the AI
         run_time = date_parser.parse(timestamp_str)
 
-        # Make sure the parsed time is timezone-aware
         if run_time.tzinfo is None:
             run_time = tz.localize(run_time)
 
         now = datetime.now(tz)
-
-        # Prevent setting reminders for the past
         if run_time < now:
             return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) seems to be in the past. Please specify a future time."
 
-        # Use the scheduler to set the reminder
         scheduler.add_job(
             func=send_message,
             trigger='date',
             run_date=run_time,
             args=[sender_number, f"⏰ Reminder: {task}"],
-            id=f"reminder_{sender_number}_{int(run_time.timestamp())}", # Create a unique ID
+            id=f"reminder_{sender_number}_{int(run_time.timestamp())}",
             replace_existing=True
         )
-
-        # Confirm with the user that the reminder is set
-        return f"✅ Reminder set! I will remind you to '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-
+        return f"✅ Reminder set! I will send you a WhatsApp message to '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
     except Exception as e:
-        print(f"An unexpected error occurred in schedule_reminder: {e}")
+        print(f"An unexpected error occurred in schedule_whatsapp_reminder: {e}")
         return "❌ An unexpected error occurred while setting your reminder."
 
 def get_conversion_menu():
@@ -622,7 +691,6 @@ def export_expenses_to_excel(sender_number):
     df.to_excel(file_path, index=False, engine='openpyxl')
     return file_path
 
-# --- UPDATED: Simplified scheduled job to send to ALL users ---
 def send_daily_briefing():
     """
     Gets a quote and 'On This Day' facts, then sends them to all registered users.
@@ -633,7 +701,6 @@ def send_daily_briefing():
         print("No users found in user_data.json. Skipping job.")
         return
 
-    # Fetch the content once for all users to be efficient
     quote = get_daily_quote()
     facts = get_on_this_day_facts()
 
@@ -648,16 +715,13 @@ def send_daily_briefing():
     print(f"Found {len(all_users)} user(s) to send the briefing to.")
     for user_id in all_users.keys():
         print(f"Sending daily briefing to {user_id}")
-        # The 'user_id' is the sender's WhatsApp number
         send_message(user_id, briefing_message)
-        time.sleep(1) # Small delay to avoid potential rate-limiting
+        time.sleep(1)
             
     print("--- Daily Briefing Job Finished ---")
 
 # --- RUN APP ---
 if __name__ == '__main__':
-    # --- Schedule the daily briefing job ---
-    # This will run the job every day at 8:00 AM India time.
     scheduler.add_job(
         func=send_daily_briefing,
         trigger='cron',
