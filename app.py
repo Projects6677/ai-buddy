@@ -39,7 +39,7 @@ from google_calendar_integration import get_google_auth_flow, get_credentials, s
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 # --- NEW: Add a secret key for Flask session management ---
-app.secret_key = os.urandom(24) 
+app.secret_key = os.urandom(24)
 
 # === CONFIG ===
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
@@ -92,16 +92,16 @@ def google_auth():
 def google_auth_callback():
     state = request.args.get('state')
     sender_number = state # The state is the user's phone number
-    
+
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
-    
+
     save_credentials(sender_number, credentials)
-    
+
     # Let the user know it was successful
     send_message(sender_number, "✅ Your Google Calendar has been successfully connected! You can now set reminders and they will be added to your calendar.")
-    
+
     user_sessions.pop(sender_number, None) # Clean up session state
     return "Authentication successful! You can return to WhatsApp."
 
@@ -122,14 +122,14 @@ def download_media_from_whatsapp(media_id):
         response.raise_for_status()
         media_info = response.json()
         media_url = media_info['url']
-        
+
         original_filename = "attached_file"
         if 'document' in media_info:
             original_filename = media_info['document'].get('filename', original_filename)
-        
+
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
-        
+
         temp_filename = secure_filename(original_filename)
         if not temp_filename:
             temp_filename = secure_filename(media_id)
@@ -169,7 +169,7 @@ def webhook():
 def handle_document_message(message, sender_number, state):
     media_id = message["document"]["id"]
     filename = message["document"].get("filename", "attached_file")
-    
+
     if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
         send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
         downloaded_path = download_media_from_whatsapp(media_id)
@@ -178,7 +178,7 @@ def handle_document_message(message, sender_number, state):
             if "attachment_paths" not in state:
                 state["attachment_paths"] = []
             state["attachment_paths"].append(downloaded_path)
-            
+
             state["state"] = "awaiting_more_attachments" # New state
             user_sessions[sender_number] = state
             response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
@@ -205,16 +205,16 @@ def handle_document_message(message, sender_number, state):
         if os.path.exists(output_docx_path): os.remove(output_docx_path)
     else:
         send_message(sender_number, "I received a file, but I wasn't expecting one. Try the menu first!")
-    
+
     if os.path.exists(downloaded_path): os.remove(downloaded_path)
     user_sessions.pop(sender_number, None)
 
 def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
-    
+
     # --- Smart Command Handling ---
     export_keywords = ['excel', 'sheet', 'report', 'export']
-    
+
     if any(keyword in user_text_lower for keyword in export_keywords) and not state:
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number)
@@ -234,10 +234,10 @@ def handle_text_message(user_text, sender_number, state):
                 cost = expense.get('cost')
                 if isinstance(cost, (int, float)):
                     confirmation = log_expense(
-                        sender_number, 
-                        cost, 
-                        expense.get('item'), 
-                        expense.get('place'), 
+                        sender_number,
+                        cost,
+                        expense.get('item'),
+                        expense.get('place'),
                         expense.get('timestamp')
                     )
                     confirmations.append(confirmation)
@@ -316,7 +316,7 @@ def handle_text_message(user_text, sender_number, state):
         else:
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
-    
+
     # --- NEW STATE FOR ATTACHMENT LOOP ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_more_attachments":
         if user_text_lower == "done":
@@ -348,7 +348,7 @@ def handle_text_message(user_text, sender_number, state):
                     time_string = user_text[len(word):].strip()
                     is_schedule_command = True
                     break
-            
+
             if is_schedule_command:
                 try:
                     tz = pytz.timezone('Asia/Kolkata')
@@ -420,7 +420,7 @@ def handle_text_message(user_text, sender_number, state):
                     run_time = date_parser.parse(timestamp_str)
                     if run_time.tzinfo is None:
                         run_time = tz.localize(run_time)
-                    
+
                     response_text = create_google_calendar_event(credentials, task, run_time)
                     user_sessions.pop(sender_number, None)
                 except Exception as e:
@@ -633,7 +633,7 @@ def convert_text_to_pdf(text):
     filename = secure_filename(f"converted_{int(time.time())}.pdf")
     file_path = os.path.join("uploads", filename)
     pdf.output(file_path); return file_path
-    
+
 def convert_text_to_word(text):
     document = Document(); document.add_paragraph(text)
     filename = secure_filename(f"converted_{int(time.time())}.docx")
@@ -650,7 +650,7 @@ def extract_text_from_pdf_file(file_path):
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     all_data = load_user_data()
     user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
-    
+
     if timestamp_str:
         try:
             expense_time = date_parser.parse(timestamp_str)
@@ -672,10 +672,10 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A":
         log_message += f" at *{place.title()}*"
-    
+
     if expense_time.date() != datetime.now(pytz.timezone('Asia/Kolkata')).date():
         log_message += f" on *{expense_time.strftime('%B %d')}*"
-        
+
     return log_message
 
 def export_expenses_to_excel(sender_number):
@@ -713,17 +713,44 @@ def send_daily_briefing():
         "🗓️ *On This Day in History*\n"
         f"{facts}"
     )
-    
+
     print(f"Found {len(all_users)} user(s) to send the briefing to.")
     for user_id in all_users.keys():
         print(f"Sending daily briefing to {user_id}")
         send_message(user_id, briefing_message)
         time.sleep(1)
-            
+
     print("--- Daily Briefing Job Finished ---")
+
+def notify_users_on_startup():
+    """
+    Sends a startup message to all known users upon application restart.
+    """
+    print("--- Checking for users to notify about update ---")
+    all_users = load_user_data()
+    if not all_users:
+        print("No users found, skipping startup notifications.")
+        return
+
+    update_message = (
+        "Hello! AI Buddy has just been updated. 🤖\n\n"
+        "To ensure everything is synced up correctly, please send a new message like *'hi'* or *'menu'* to continue."
+    )
+
+    print(f"Found {len(all_users)} user(s). Preparing to send update notifications...")
+    for user_id in all_users.keys():
+        print(f"Sending update notification to {user_id}")
+        send_message(user_id, update_message)
+        time.sleep(1)
+
+    print("--- Finished sending startup notifications ---")
 
 # --- RUN APP ---
 if __name__ == '__main__':
+    # Notify users that the bot has been updated and to re-engage
+    notify_users_on_startup()
+
+    # Schedule the daily briefing job
     scheduler.add_job(
         func=send_daily_briefing,
         trigger='cron',
@@ -733,6 +760,6 @@ if __name__ == '__main__':
         id='daily_briefing_job',
         replace_existing=True
     )
-    
+
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
