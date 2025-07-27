@@ -69,7 +69,7 @@ Tell the bot what you spent (e.g. "I spent 300 on pizza at Dominos") and later e
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/ai-buddy.git
+git clone https://github.com/projects6677/ai-buddy.git
 cd ai-buddy
 ```
 
