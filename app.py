@@ -17,7 +17,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
 from werkzeug.middleware.proxy_fix import ProxyFix
-# --- NEW: Import pymongo to connect to the database ---
 from pymongo import MongoClient
 
 from currency import convert_currency
@@ -43,7 +42,7 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = os.urandom(24)
 
-# === CONFIG ===
+# === CONFIGURATION ===
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
@@ -52,13 +51,13 @@ OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
-# --- NEW: Get the MongoDB connection string from Render's environment variables ---
 MONGO_URI = os.environ.get("MONGO_URI")
+DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
 
-# --- NEW: Establish a connection to the MongoDB database ---
+# --- DATABASE CONNECTION ---
 client = MongoClient(MONGO_URI)
-db = client.ai_buddy_db # You can name your database anything
-users_collection = db.users # This is where user data will be stored
+db = client.ai_buddy_db
+users_collection = db.users
 
 user_sessions = {}
 
@@ -69,22 +68,18 @@ scheduler.start()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# === DATABASE FUNCTIONS (Replaces JSON functions) ===
+# === DATABASE HELPER FUNCTIONS ===
 def get_user_from_db(sender_number):
     """Fetches a single user's data from the database."""
     return users_collection.find_one({"_id": sender_number})
 
 def create_or_update_user_in_db(sender_number, data):
     """Saves or updates a user's data in the database."""
-    users_collection.update_one(
-        {"_id": sender_number},
-        {"$set": data},
-        upsert=True # This creates the user if they don't exist
-    )
+    users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
 def get_all_users_from_db():
     """Fetches all users from the database."""
-    return users_collection.find({}, {"_id": 1}) # Only get the user IDs
+    return users_collection.find({}, {"_id": 1})
 
 
 # === ROUTES ===
@@ -190,7 +185,6 @@ def handle_document_message(message, sender_number, state):
             if "attachment_paths" not in state:
                 state["attachment_paths"] = []
             state["attachment_paths"].append(downloaded_path)
-
             state["state"] = "awaiting_more_attachments"
             user_sessions[sender_number] = state
             response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
@@ -221,11 +215,30 @@ def handle_document_message(message, sender_number, state):
     if os.path.exists(downloaded_path): os.remove(downloaded_path)
     user_sessions.pop(sender_number, None)
 
-
 def handle_text_message(user_text, sender_number, state):
+    # --- Intercept Developer Commands First ---
+    if user_text.startswith(".dev"):
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        
+        parts = user_text.split()
+        if len(parts) < 3:
+            send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
+            return
+        
+        command, key, features = parts[0], parts[1], " ".join(parts[2:])
+
+        if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
+            send_message(sender_number, "❌ Invalid admin secret key.")
+            return
+
+        scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+        send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
+        return
+
+    # --- Regular User Logic ---
     user_text_lower = user_text.lower()
-    
-    # --- Get user data from the database ---
     user_data = get_user_from_db(sender_number)
 
     if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not state:
@@ -429,7 +442,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             user_sessions[sender_number] = "awaiting_email_recipient"
             response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? Please enter their email addresses, separated by commas."
