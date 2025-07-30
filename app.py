@@ -33,12 +33,10 @@ from grok_ai import (
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_facts
-# --- NEW: Import Google Calendar functions ---
 from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
-# --- NEW: Add a secret key for Flask session management ---
 app.secret_key = os.urandom(24)
 
 # === CONFIG ===
@@ -53,6 +51,12 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
+# === UPDATED SCHEDULER CONFIG FOR RENDER ===
+# Using a background scheduler. For production on platforms like Render,
+# it's highly recommended to use a persistent job store like a database (e.g., PostgreSQL)
+# instead of the default memory store to prevent scheduled jobs from being lost on worker restarts.
+# For simplicity in this example, we will stick to the BackgroundScheduler.
+# See the previous explanation for how to configure a persistent job store if needed.
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 scheduler.start()
 
@@ -317,7 +321,6 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
 
-    # --- NEW STATE FOR ATTACHMENT LOOP ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_more_attachments":
         if user_text_lower == "done":
             state["state"] = "awaiting_email_edit"
@@ -327,44 +330,57 @@ def handle_text_message(user_text, sender_number, state):
         else:
             response_text = "Please upload another file, or type *'done'* to finish."
 
+    # === START: FULLY REVISED EMAIL EDIT/SEND/SCHEDULE LOGIC ===
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
-        if user_text_lower == "attach":
-            state["state"] = "awaiting_email_attachment"
-            user_sessions[sender_number] = state
-            response_text = "📎 Please upload the first file you want to attach."
-        elif user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
+        # Case 1: User wants to send the email immediately
+        if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email now...")
             attachment_paths = state.get("attachment_paths", [])
             response_text = send_email(state["recipients"], state["subject"], state["body"], attachment_paths)
             for path in attachment_paths:
                 if os.path.exists(path): os.remove(path)
             user_sessions.pop(sender_number, None)
+        
+        # Case 2: User wants to attach a file
+        elif user_text_lower == "attach":
+            state["state"] = "awaiting_email_attachment"
+            user_sessions[sender_number] = state
+            response_text = "📎 Please upload the first file you want to attach."
+        
+        # Case 3: User might be trying to schedule or edit the email
         else:
-            approval_words = ["send", "approve"]
-            is_schedule_command = False
-            time_string = ""
-            for word in approval_words:
-                if user_text_lower.startswith(word + " "):
-                    time_string = user_text[len(word):].strip()
-                    is_schedule_command = True
-                    break
+            # Use AI to figure out if it's a schedule command
+            _, timestamp_str = parse_reminder_with_grok(user_text)
 
-            if is_schedule_command:
+            # If AI finds a valid time, it's a schedule command
+            if timestamp_str:
                 try:
                     tz = pytz.timezone('Asia/Kolkata')
                     now = datetime.now(tz)
-                    run_time = date_parser.parse(time_string, default=now)
+                    run_time = date_parser.parse(timestamp_str)
+                    
                     if run_time.tzinfo is None:
                         run_time = tz.localize(run_time)
+                    
                     if run_time < now:
-                         response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
+                        response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past. Please specify a future time."
                     else:
                         attachment_paths = state.get("attachment_paths", [])
-                        scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"], attachment_paths])
+                        scheduler.add_job(
+                            func=send_email, 
+                            trigger='date', 
+                            run_date=run_time, 
+                            args=[state["recipients"], state["subject"], state["body"], attachment_paths]
+                        )
                         response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+                    
                     user_sessions.pop(sender_number, None)
-                except date_parser.ParserError:
-                    response_text = "✅ Draft approved, but I didn't understand that time. Please try again."
+
+                except (date_parser.ParserError, ValueError) as e:
+                    print(f"Error parsing timestamp from Grok: {e}")
+                    response_text = "I understood you want to schedule the email, but had trouble with the exact time. Please try rephrasing the time."
+
+            # If it's not a schedule command, assume it's an edit instruction
             else:
                 send_message(sender_number, "✏️ Applying your changes, please wait...")
                 new_body = edit_email_body(state["body"], user_text)
@@ -373,15 +389,13 @@ def handle_text_message(user_text, sender_number, state):
                     response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
+    # === END: FULLY REVISED EMAIL LOGIC ===
 
-    # --- UPDATED: Reminder flow to include choice ---
     elif state == "awaiting_reminder":
-        # First, parse the reminder to see if it's valid
         task, timestamp_str = parse_reminder_with_grok(user_text)
         if not task or not timestamp_str:
             response_text = "❌ I couldn't understand the reminder. Please try again, for example: 'Remind me to call Mom tomorrow at 5 PM'."
         else:
-            # Store the parsed info and ask for the reminder type
             user_sessions[sender_number] = {
                 "state": "awaiting_reminder_type_choice",
                 "task": task,
@@ -393,7 +407,6 @@ def handle_text_message(user_text, sender_number, state):
                 "2️⃣ Add to Google Calendar"
             )
 
-    # --- NEW: Handle the user's reminder type choice ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_reminder_type_choice":
         choice = user_text.strip()
         task = state["task"]
@@ -405,22 +418,19 @@ def handle_text_message(user_text, sender_number, state):
         elif choice == "2": # Google Calendar Reminder
             credentials = get_credentials(sender_number)
             if not credentials:
-                # If no credentials, start the auth flow
                 auth_url = url_for('google_auth', state=sender_number, _external=True)
                 response_text = (
                     "To connect to your calendar, please use the link below to grant permission. You only need to do this once.\n\n"
                     f"🔗 [Click here to authorize]({auth_url})\n\n"
                     "After authorizing, please set your reminder again."
                 )
-                user_sessions.pop(sender_number, None) # Clear state to let them restart
+                user_sessions.pop(sender_number, None)
             else:
-                # If we have credentials, create the event
                 try:
                     tz = pytz.timezone('Asia/Kolkata')
                     run_time = date_parser.parse(timestamp_str)
                     if run_time.tzinfo is None:
                         run_time = tz.localize(run_time)
-
                     response_text = create_google_calendar_event(credentials, task, run_time)
                     user_sessions.pop(sender_number, None)
                 except Exception as e:
@@ -517,13 +527,12 @@ def send_message(to, message):
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
-    # --- UPDATED: Reminder can now be via WhatsApp or Google Calendar ---
     return (
         f"{name_line}\n\n"
         "How can I assist you today?\n\n"
         "1️⃣  *Set a Reminder* (WhatsApp or Google Calendar) ⏰\n"
         "2️⃣  *Fix Grammar* ✍️\n"
-        "3️⃣  *Ask AI Anything* 💬\n"
+        "3️⃣  *Ask AI Anything* �\n"
         "4️⃣  *File/Text Conversion* 📄\n"
         "5️⃣  *Translator* 🌍\n"
         "6️⃣  *Weather Forecast* ⛅\n"
@@ -539,9 +548,6 @@ def send_welcome_message(to, name):
     send_message(to, menu_text)
 
 def schedule_whatsapp_reminder(task, timestamp_str, sender_number):
-    """
-    Schedules a reminder to be sent via WhatsApp message.
-    """
     try:
         tz = pytz.timezone('Asia/Kolkata')
         run_time = date_parser.parse(timestamp_str)
@@ -694,9 +700,6 @@ def export_expenses_to_excel(sender_number):
     return file_path
 
 def send_daily_briefing():
-    """
-    Gets a quote and 'On This Day' facts, then sends them to all registered users.
-    """
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
     all_users = load_user_data()
     if not all_users:
@@ -723,9 +726,6 @@ def send_daily_briefing():
     print("--- Daily Briefing Job Finished ---")
 
 def notify_users_on_startup():
-    """
-    Sends a startup message to all known users upon application restart.
-    """
     print("--- Checking for users to notify about update ---")
     all_users = load_user_data()
     if not all_users:
