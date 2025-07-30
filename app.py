@@ -17,6 +17,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil import parser as date_parser
 import pandas as pd
 from werkzeug.middleware.proxy_fix import ProxyFix
+# --- NEW: Import pymongo to connect to the database ---
+from pymongo import MongoClient
 
 from currency import convert_currency
 from grok_ai import (
@@ -34,7 +36,6 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_facts
 from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
-# --- NEW: Import the refined schedule_reminder function from reminders.py ---
 from reminders import schedule_reminder
 
 
@@ -50,11 +51,15 @@ GROK_API_KEY = os.environ.get("GROK_API_KEY")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-# --- NEW: Secret key for the admin route (loaded from Render environment) ---
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
+# --- NEW: Get the MongoDB connection string from Render's environment variables ---
+MONGO_URI = os.environ.get("MONGO_URI")
 
+# --- NEW: Establish a connection to the MongoDB database ---
+client = MongoClient(MONGO_URI)
+db = client.ai_buddy_db # You can name your database anything
+users_collection = db.users # This is where user data will be stored
 
-USER_DATA_FILE = "user_data.json"
 user_sessions = {}
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
@@ -64,32 +69,35 @@ scheduler.start()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# === JSON MEMORY ===
-def load_user_data():
-    if not os.path.exists(USER_DATA_FILE): return {}
-    try:
-        with open(USER_DATA_FILE, "r") as f: return json.load(f)
-    except json.JSONDecodeError: return {}
+# === DATABASE FUNCTIONS (Replaces JSON functions) ===
+def get_user_from_db(sender_number):
+    """Fetches a single user's data from the database."""
+    return users_collection.find_one({"_id": sender_number})
 
-def save_user_data(data):
-    with open(USER_DATA_FILE, "w") as f: json.dump(data, f, indent=4)
+def create_or_update_user_in_db(sender_number, data):
+    """Saves or updates a user's data in the database."""
+    users_collection.update_one(
+        {"_id": sender_number},
+        {"$set": data},
+        upsert=True # This creates the user if they don't exist
+    )
+
+def get_all_users_from_db():
+    """Fetches all users from the database."""
+    return users_collection.find({}, {"_id": 1}) # Only get the user IDs
+
 
 # === ROUTES ===
 @app.route('/')
 def home():
     return "WhatsApp AI Assistant is Live!"
 
-# --- GOOGLE AUTHENTICATION ROUTES ---
 @app.route('/google-auth')
 def google_auth():
     sender_number = request.args.get('state')
     session['sender_number'] = sender_number
     flow = get_google_auth_flow()
-    authorization_url, _ = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        state=sender_number
-    )
+    authorization_url, _ = flow.authorization_url(access_type='offline', include_granted_scopes='true', state=sender_number)
     return redirect(authorization_url)
 
 @app.route('/google-auth/callback')
@@ -100,31 +108,20 @@ def google_auth_callback():
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
     save_credentials(sender_number, credentials)
-    send_message(sender_number, "✅ Your Google Calendar has been successfully connected! You can now set reminders and they will be added to your calendar.")
+    send_message(sender_number, "✅ Your Google Calendar has been successfully connected!")
     user_sessions.pop(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
 
-# --- NEW: SECRET ADMIN ROUTE TO NOTIFY USERS OF UPDATES ---
 @app.route('/notify-update')
 def trigger_update_notification():
     secret = request.args.get('secret')
-    features = request.args.get('features') # Get the feature list from the URL parameter
-
+    features = request.args.get('features')
     if not ADMIN_SECRET_KEY or secret != ADMIN_SECRET_KEY:
         return "Unauthorized: Invalid or missing secret key.", 401
-
     if not features:
-        return "Bad Request: Please provide a 'features' parameter in the URL (e.g., ?features=New AI reminders!)", 400
-
-    # Schedule the notification job to run in the background
-    scheduler.add_job(
-        func=send_update_notification_to_all_users,
-        trigger='date',
-        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
-        args=[features] # Pass the feature list to the function
-    )
-    return f"✅ Success! Update notification job has been scheduled. All users will be notified about: '{features}'", 200
-
+        return "Bad Request: Please provide a 'features' parameter.", 400
+    scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+    return f"✅ Success! Update notification scheduled for: '{features}'", 200
 
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -224,12 +221,16 @@ def handle_document_message(message, sender_number, state):
     if os.path.exists(downloaded_path): os.remove(downloaded_path)
     user_sessions.pop(sender_number, None)
 
+
 def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
+    
+    # --- Get user data from the database ---
+    user_data = get_user_from_db(sender_number)
 
     if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not state:
         send_message(sender_number, "📊 Generating your expense report...")
-        file_path = export_expenses_to_excel(sender_number)
+        file_path = export_expenses_to_excel(sender_number, user_data)
         if file_path:
             send_file_to_user(sender_number, file_path, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Here is your expense report.xlsx")
             os.remove(file_path)
@@ -247,12 +248,11 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "Sorry, I couldn't understand that as an expense. Try being more specific about the cost and item.")
         return
 
-    user_data = load_user_data()
     response_text = ""
 
     if user_text.lower() in ["hi", "hello", "hey", "start", "menu", "help", "options", "0"]:
         user_sessions.pop(sender_number, None)
-        name = user_data.get(sender_number, {}).get("name")
+        name = user_data.get("name") if user_data else None
         if not name:
             response_text = "👋 Hi there! To personalize your experience, what should I call you?"
             user_sessions[sender_number] = "awaiting_name"
@@ -263,12 +263,13 @@ def handle_text_message(user_text, sender_number, state):
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
-        user_data[sender_number] = {"name": name, "expenses": []}
-        save_user_data(user_data)
+        new_user_data = {"name": name, "expenses": []}
+        create_or_update_user_in_db(sender_number, new_user_data)
         user_sessions.pop(sender_number, None)
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
         send_welcome_message(sender_number, name)
+    
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -360,14 +361,9 @@ def handle_text_message(user_text, sender_number, state):
                     response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
-    # --- UPDATED: Reminder flow now uses the refined schedule_reminder function from reminders.py ---
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number)
         user_sessions.pop(sender_number, None)
-
-    # The logic for choosing between WhatsApp and Google Calendar reminders can be removed
-    # from here if the primary reminder logic is now handled by the imported `schedule_reminder`.
-    # For now, keeping the GCal logic separate is okay.
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
@@ -433,7 +429,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             user_sessions[sender_number] = "awaiting_email_recipient"
             response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? Please enter their email addresses, separated by commas."
@@ -442,6 +438,7 @@ def handle_text_message(user_text, sender_number, state):
 
     if response_text:
         send_message(sender_number, response_text)
+
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_message(to, message):
@@ -453,7 +450,6 @@ def send_message(to, message):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send message: {e}")
 
-# --- NEW: Function to send approved WhatsApp Message Templates ---
 def send_template_message(to, template_name, components=[]):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -542,24 +538,33 @@ def extract_text_from_pdf_file(file_path):
         print(f"❌ Error extracting PDF text: {e}"); return ""
 
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
-    all_data = load_user_data()
-    user_info = all_data.setdefault(sender_number, {"name": "", "expenses": []})
+    user_data = get_user_from_db(sender_number)
+    if not user_data:
+        user_data = {"_id": sender_number, "name": "User", "expenses": []}
+    
     try:
         expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
     except (date_parser.ParserError, pytz.exceptions.AmbiguousTimeError):
         expense_time = datetime.now(pytz.timezone('Asia/Kolkata'))
+    
     tz = pytz.timezone('Asia/Kolkata')
     if expense_time.tzinfo is None: expense_time = tz.localize(expense_time)
+    
     new_expense = {"cost": amount, "item": item, "place": place or "N/A", "timestamp": expense_time.isoformat()}
-    user_info.setdefault("expenses", []).append(new_expense)
-    save_user_data(all_data)
+    
+    if "expenses" not in user_data:
+        user_data["expenses"] = []
+    user_data["expenses"].append(new_expense)
+    
+    create_or_update_user_in_db(sender_number, user_data)
+    
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A": log_message += f" at *{place.title()}*"
     if expense_time.date() != datetime.now(tz).date(): log_message += f" on *{expense_time.strftime('%B %d')}*"
     return log_message
 
-def export_expenses_to_excel(sender_number):
-    user_expenses = load_user_data().get(sender_number, {}).get("expenses", [])
+def export_expenses_to_excel(sender_number, user_data):
+    user_expenses = user_data.get("expenses", []) if user_data else []
     if not user_expenses: return None
     df = pd.DataFrame(user_expenses)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -573,32 +578,29 @@ def export_expenses_to_excel(sender_number):
 
 def send_daily_briefing():
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
-    all_users = load_user_data()
+    all_users = list(get_all_users_from_db())
     if not all_users: print("No users found. Skipping job."); return
     quote = get_daily_quote()
     facts = get_on_this_day_facts()
     briefing_message = f"☀️ *Good Morning! Here is your Daily Briefing.*\n\n💡 *Quote of the Day*\n_{quote}_\n\n🗓️ *On This Day in History*\n{facts}"
     print(f"Found {len(all_users)} user(s) to send briefing to.")
-    for user_id in all_users.keys():
-        send_message(user_id, briefing_message)
+    for user in all_users:
+        send_message(user["_id"], briefing_message)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
-# --- NEW: Function to send the 'bot_update_notification' template to all users ---
 def send_update_notification_to_all_users(feature_list):
     if not ADMIN_SECRET_KEY:
         print("ADMIN_SECRET_KEY is not set. Cannot send notifications.")
         return
     print("--- Sending update notifications to all users ---")
-    all_users = load_user_data()
+    all_users = list(get_all_users_from_db())
     if not all_users:
         print("No users found, skipping notifications.")
         return
 
-    # This is the name of the template you created
     template_name = "bot_update_notification"
     
-    # This creates the component structure for the variable
     components = [{
         "type": "body",
         "parameters": [{
@@ -608,9 +610,9 @@ def send_update_notification_to_all_users(feature_list):
     }]
 
     print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
-    for user_id in all_users.keys():
-        send_template_message(user_id, template_name, components)
-        time.sleep(1) # Pause between messages to avoid rate limiting
+    for user in all_users:
+        send_template_message(user["_id"], template_name, components)
+        time.sleep(1)
     print("--- Finished sending update notifications ---")
 
 
@@ -627,4 +629,4 @@ if __name__ == '__main__':
     )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
+�
