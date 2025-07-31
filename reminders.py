@@ -1,40 +1,38 @@
+# reminders.py
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from dateutil import parser as date_parser
 import pytz
 from messaging import send_message
-from grok_ai import parse_reminder_with_grok # <-- IMPORT the AI parser
+from grok_ai import parse_reminder_with_grok
+from google_calendar_integration import create_google_calendar_event
 
-# This scheduler instance is created here, but it's better practice
-# to have a single instance in your main app.py. For now, this works.
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 if not scheduler.running:
     scheduler.start()
 
-def schedule_reminder(msg, user):
+def schedule_reminder(msg, user, get_creds_func):
     """
-    Schedules a reminder using AI to parse the user's message.
+    Schedules a reminder on WhatsApp and optionally on Google Calendar.
+    `get_creds_func` is a function passed from app.py to get credentials from the DB.
     """
-    # Use the AI to parse the task and time from the user's message
     task, timestamp_str = parse_reminder_with_grok(msg)
 
     if not task or not timestamp_str:
-        return "❌ I couldn't quite understand that. Please try phrasing your reminder differently, for example: 'Remind me to call Mom tomorrow at 5 PM'."
+        return "❌ I couldn't understand that. Please try phrasing your reminder differently."
 
     try:
-        # The AI provides a clean timestamp, which is easy to parse
         tz = pytz.timezone('Asia/Kolkata')
         run_time = date_parser.parse(timestamp_str)
 
-        # Ensure the datetime object is timezone-aware
         if run_time.tzinfo is None:
             run_time = tz.localize(run_time)
 
         now = datetime.now(tz)
         if run_time < now:
-            return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) seems to be in the past. Please specify a future time."
+            return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
 
-        # Schedule the reminder job
+        # Schedule the WhatsApp reminder
         scheduler.add_job(
             func=send_message,
             trigger='date',
@@ -44,9 +42,22 @@ def schedule_reminder(msg, user):
             replace_existing=True
         )
 
-        return f"✅ Reminder set! I'll ping you about '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+        base_confirmation = f"✅ Reminder set for '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+        gcal_confirmation = ""
+        event_link_text = ""
 
-    except (date_parser.ParserError, ValueError) as e:
-        print(f"Reminder parsing error after Grok: {e}")
+        # Check for Google Calendar credentials using the passed function
+        creds = get_creds_func(user)
+        if creds:
+            gcal_message, event_link = create_google_calendar_event(creds, task, run_time)
+            gcal_confirmation = f"\n{gcal_message}"
+            if event_link:
+                event_link_text = f"\n\n🔗 View Event: {event_link}"
+        else:
+            gcal_confirmation = "\n\n💡 _Connect your Google Account to also save reminders to your calendar!_"
+
+        return f"{base_confirmation}{gcal_confirmation}{event_link_text}"
+
+    except Exception as e:
+        print(f"Reminder scheduling error: {e}")
         return "❌ An unexpected error occurred while setting your reminder."
-
