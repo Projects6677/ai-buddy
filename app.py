@@ -33,7 +33,8 @@ from grok_ai import (
     translate_with_grok
 )
 from email_sender import send_email
-from services import get_daily_quote, get_on_this_day_facts
+# Updated import to include the new briefing functions
+from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip
 from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
 from reminders import schedule_reminder
 
@@ -592,15 +593,31 @@ def export_expenses_to_excel(sender_number, user_data):
 def send_daily_briefing():
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
-    if not all_users: print("No users found. Skipping job."); return
+    if not all_users: 
+        print("No users found. Skipping job.")
+        return
+        
+    # Get all the content for the new briefing
+    headline = get_tech_headline()
+    weather = get_briefing_weather("Vijayawada") # You can change the default city
+    tech_tip = get_tech_tip()
     quote = get_daily_quote()
-    facts = get_on_this_day_facts()
-    briefing_message = f"☀️ *Good Morning! Here is your Daily Briefing.*\n\n💡 *Quote of the Day*\n_{quote}_\n\n🗓️ *On This Day in History*\n{facts}"
+
+    # Build the new briefing message in the desired order
+    briefing_message = (
+        f"☀️ *Good Morning! Here is your Daily Briefing.*\n\n"
+        f"📰 *Top Tech Headline*\n_{headline}_\n\n"
+        f"📍 *Weather Update*\n{weather}\n\n"
+        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
+        f"💡 *Quote of the Day*\n_{quote}_"
+    )
+
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
         send_message(user["_id"], briefing_message)
-        time.sleep(1)
+        time.sleep(1) # Pause between messages
     print("--- Daily Briefing Job Finished ---")
+
 
 def send_update_notification_to_all_users(feature_list):
     if not ADMIN_SECRET_KEY:
