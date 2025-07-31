@@ -7,10 +7,13 @@ from datetime import timedelta
 
 # --- CONFIGURATION ---
 CLIENT_SECRETS_FILE = 'client_secret.json'
+# --- MODIFICATION START ---
+# Change the Gmail scope to allow sending emails
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
-    'https://www.googleapis.com/auth/gmail.readonly'
+    'https://www.googleapis.com/auth/gmail.send' 
 ]
+# --- MODIFICATION END ---
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https_your_app_url.com/google-auth/callback")
 
 def get_google_auth_flow():
