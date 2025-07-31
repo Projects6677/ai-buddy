@@ -1,51 +1,60 @@
 # email_sender.py
 import os
-import smtplib
+import base64
 from email.message import EmailMessage
 import mimetypes
+from googleapiclient.discovery import build
 
-SENDER_EMAIL = os.environ.get("EMAIL_ADDRESS")
-SENDER_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+def create_message(sender, to, subject, body, attachment_paths=None):
+    """Creates an email message object."""
+    message = EmailMessage()
+    message.set_content(body)
+    message['To'] = to
+    message['From'] = sender
+    message['Subject'] = subject
 
-def send_email(recipient_emails, subject, body, attachment_paths=None):
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        return "Error: Email credentials are not configured on the server."
+    if attachment_paths and isinstance(attachment_paths, list):
+        for path in attachment_paths:
+            if os.path.exists(path):
+                ctype, encoding = mimetypes.guess_type(path)
+                if ctype is None or encoding is not None:
+                    ctype = 'application/octet-stream'
+                maintype, subtype = ctype.split('/', 1)
+                
+                with open(path, 'rb') as fp:
+                    message.add_attachment(fp.read(),
+                                       maintype=maintype,
+                                       subtype=subtype,
+                                       filename=os.path.basename(path))
+    return message
 
-    if not isinstance(recipient_emails, list):
-        recipient_emails = [recipient_emails]
-
+def send_email(credentials, recipient_emails, subject, body, attachment_paths=None):
+    """
+    Sends an email using the user's Gmail account via the Gmail API.
+    """
     try:
-        msg = EmailMessage()
-        msg.set_content(body)
-        msg['Subject'] = subject
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = ", ".join(recipient_emails)
-
-        # --- UPDATED ATTACHMENT LOGIC FOR MULTIPLE FILES ---
-        if attachment_paths and isinstance(attachment_paths, list):
-            for path in attachment_paths:
-                if os.path.exists(path):
-                    ctype, encoding = mimetypes.guess_type(path)
-                    if ctype is None or encoding is not None:
-                        ctype = 'application/octet-stream'
-                    maintype, subtype = ctype.split('/', 1)
-                    
-                    with open(path, 'rb') as fp:
-                        msg.add_attachment(fp.read(),
-                                           maintype=maintype,
-                                           subtype=subtype,
-                                           filename=os.path.basename(path))
-
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
-            smtp.send_message(msg)
+        service = build('gmail', 'v1', credentials=credentials)
+        
+        # Get the user's own email address to use as the 'From' field
+        user_email = service.users().getProfile(userId='me').execute().get('emailAddress')
+        
+        if not isinstance(recipient_emails, list):
+            recipient_emails = [recipient_emails]
+        
+        email_message = create_message(user_email, ", ".join(recipient_emails), subject, body, attachment_paths)
+        
+        encoded_message = base64.urlsafe_b64encode(email_message.as_bytes()).decode()
+        create_message_body = {'raw': encoded_message}
+        
+        # Send the email
+        service.users().messages().send(userId="me", body=create_message_body).execute()
         
         recipient_str = ", ".join(f"*{email}*" for email in recipient_emails)
-        confirmation_message = f"✅ Email successfully sent to {recipient_str}."
+        confirmation_message = f"✅ Email successfully sent from your account to {recipient_str}."
         if attachment_paths and len(attachment_paths) > 0:
             confirmation_message += f" with {len(attachment_paths)} attachment(s)."
         return confirmation_message
 
     except Exception as e:
-        print(f"Email sending error: {e}")
-        return "❌ Sorry, I failed to send the email. Please check the server logs."
+        print(f"Gmail API sending error: {e}")
+        return "❌ Sorry, I failed to send the email. Please ensure you have granted Gmail permissions."
