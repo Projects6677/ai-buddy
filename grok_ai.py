@@ -1,3 +1,4 @@
+# grok_ai.py
 import requests
 import os
 import json
@@ -13,14 +14,18 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+# --- MODIFIED FUNCTION ---
 def summarize_emails_with_grok(email_text):
     """Summarizes a block of email text using the Grok AI."""
     if not GROK_API_KEY: return None
     if not email_text.strip(): return None
 
     prompt = f"""
-    You are an expert at summarizing emails. Read the following email content and provide a very short, bulleted summary of the key points.
-    Focus on the sender, the main topic, and any calls to action. Keep it concise.
+    You are an expert at summarizing emails into a neat, bulleted list.
+    Read the following email content and provide a very short, clean summary of the key points.
+    Each point must start with a hyphen (-).
+    Focus on the sender and the main topic.
+    If there is nothing important or no content, return the single phrase "No important updates."
 
     Email Content:
     ---
@@ -29,15 +34,18 @@ def summarize_emails_with_grok(email_text):
 
     Return only the summary.
     """
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3 }
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2 }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+        summary = response.json()["choices"][0]["message"]["content"].strip()
+        # Ensure it returns None if the model says there's nothing important
+        if "no important updates" in summary.lower():
+            return None
+        return summary
     except Exception as e:
         print(f"Grok email summarization error: {e}")
         return None
-
 
 # --- Intent Classification ---
 def is_expense_intent(text):
