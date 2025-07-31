@@ -9,11 +9,14 @@ from googleapiclient.discovery import build
 from datetime import timedelta
 
 # --- CONFIGURATION ---
-# IMPORTANT: Download your client_secret.json from Google Cloud Console and place it here.
 CLIENT_SECRETS_FILE = 'client_secret.json'
-SCOPES = ['https://www.googleapis.com/auth/calendar.events']
-# This should be the publicly accessible URL of your webhook + /google-auth/callback
-# For local testing, you might use ngrok and set this URL dynamically.
+# --- MODIFICATION START ---
+# Add the Gmail read-only scope to get email access
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/gmail.readonly'
+]
+# --- MODIFICATION END ---
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https_your_app_url.com/google-auth/callback")
 
 def get_google_auth_flow():
@@ -40,10 +43,8 @@ def get_credentials(sender_number):
         with open(token_path, 'rb') as token_file:
             creds = pickle.load(token_file)
 
-    # Check if credentials are valid and refresh if necessary
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        # Save the refreshed credentials
         with open(token_path, 'wb') as token_file:
             pickle.dump(creds, token_file)
 
@@ -64,38 +65,36 @@ def save_credentials(sender_number, credentials):
 
 def create_google_calendar_event(credentials, task, run_time):
     """
-    Creates an event on the user's primary Google Calendar.
+    Creates an event on the user's primary Google Calendar and returns a link.
     """
     try:
         service = build('calendar', 'v3', credentials=credentials)
         
         end_time = run_time + timedelta(minutes=30)
 
-        # --- MODIFICATION START ---
-        # The fix is to provide a timezone-naive datetime string to the API
-        # and specify the timezone separately. This avoids ambiguity.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
-                'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'), # Naive time string
-                'timeZone': 'Asia/Kolkata', # Explicit timezone
+                'dateTime': run_time.isoformat(),
+                'timeZone': 'Asia/Kolkata',
             },
             'end': {
-                'dateTime': end_time.strftime('%Y-%m-%dT%H:%M:%S'), # Naive time string
-                'timeZone': 'Asia/Kolkata', # Explicit timezone
+                'dateTime': end_time.isoformat(),
+                'timeZone': 'Asia/Kolkata',
             },
             'reminders': {
                 'useDefault': True,
             },
         }
-        # --- MODIFICATION END ---
 
         created_event = service.events().insert(calendarId='primary', body=event).execute()
         
-        # The confirmation message uses the original 'run_time' object, which is correct.
-        return f"✅ Event '{task}' created in your Google Calendar for *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+        event_link = created_event.get('htmlLink')
+        confirmation_message = f"🗓️ Also added to your Google Calendar!"
+        
+        return confirmation_message, event_link
 
     except Exception as e:
         print(f"Google Calendar event creation error: {e}")
-        return "❌ Sorry, I failed to create the event in your Google Calendar."
+        return "❌ Failed to create Google Calendar event.", None
