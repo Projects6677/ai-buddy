@@ -90,6 +90,10 @@ def delete_all_users_from_db():
     """Deletes all user data from the database."""
     return users_collection.delete_many({})
 
+def count_users_in_db():
+    """Counts the total number of users in the database."""
+    return users_collection.count_documents({})
+
 # --- GOOGLE CREDENTIALS HELPER FUNCTIONS ---
 def save_credentials_to_db(sender_number, credentials):
     """Saves pickled Google credentials to the user's document in MongoDB."""
@@ -308,6 +312,16 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
         return
 
+    elif user_text.lower() == ".stats":
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        
+        count = count_users_in_db()
+        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+        send_message(sender_number, stats_message)
+        return
+
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
@@ -425,8 +439,6 @@ def handle_text_message(user_text, sender_number, state):
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email from your account...")
             
-            # --- MODIFICATION START ---
-            # Get user's credentials and send email via Gmail API
             creds = get_credentials_from_db(sender_number)
             if creds:
                 attachment_paths = state.get("attachment_paths", [])
@@ -436,7 +448,6 @@ def handle_text_message(user_text, sender_number, state):
                 user_sessions.pop(sender_number, None)
             else:
                 response_text = "❌ Could not send email. Your Google account is not connected properly. Please try re-connecting."
-            # --- MODIFICATION END ---
             
         elif user_text_lower == "attach":
             state["state"] = "awaiting_email_attachment"
@@ -454,7 +465,6 @@ def handle_text_message(user_text, sender_number, state):
                     if run_time < now:
                         response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
                     else:
-                        # Schedule email to be sent from user's account
                         creds = get_credentials_from_db(sender_number)
                         if creds:
                             attachment_paths = state.get("attachment_paths", [])
@@ -544,15 +554,12 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_currency_conversion"
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
-            # --- MODIFICATION START ---
-            # Check if user is connected to Google before starting email flow
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
                 response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
-            # --- MODIFICATION END ---
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
