@@ -88,7 +88,11 @@ def get_all_users_from_db():
     """Fetches all users (ID and name) from the database."""
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
 
-# --- NEW GOOGLE CREDENTIALS HELPER FUNCTIONS ---
+def delete_all_users_from_db():
+    """Deletes all user data from the database."""
+    return users_collection.delete_many({})
+
+# --- GOOGLE CREDENTIALS HELPER FUNCTIONS ---
 def save_credentials_to_db(sender_number, credentials):
     """Saves pickled Google credentials to the user's document in MongoDB."""
     pickled_creds = pickle.dumps(credentials)
@@ -106,7 +110,6 @@ def get_credentials_from_db(sender_number):
 
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        # Save the refreshed credentials back to the database
         save_credentials_to_db(sender_number, creds)
 
     if creds and creds.valid:
@@ -135,7 +138,6 @@ def google_auth_callback():
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
     
-    # Save the credentials to the database
     save_credentials_to_db(sender_number, credentials)
     
     send_message(sender_number, "✅ Your Google account has been successfully connected!")
@@ -297,6 +299,16 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, "✅ Roger that. Sending the daily briefing to all users for testing...")
         send_daily_briefing()
         return
+        
+    elif user_text.lower() == ".nuke":
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        
+        result = delete_all_users_from_db()
+        count = result.deleted_count
+        send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
+        return
 
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
@@ -451,7 +463,7 @@ def handle_text_message(user_text, sender_number, state):
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
     elif state == "awaiting_reminder":
-        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db) # Pass the function
+        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
@@ -683,7 +695,6 @@ def send_daily_briefing():
         user_name = user.get("name", "there")
         
         email_summary = ""
-        # Check if the user is connected to Google
         if user.get("is_google_connected"):
             creds = get_credentials_from_db(user_id)
             if creds:
