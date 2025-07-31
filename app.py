@@ -85,7 +85,7 @@ def create_or_update_user_in_db(sender_number, data):
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
 def get_all_users_from_db():
-    """Fetches all users (ID and name) from the database."""
+    """Fetches all users (ID, name, and connection status) from the database."""
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
 
 def delete_all_users_from_db():
@@ -296,8 +296,8 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "❌ Invalid passcode.")
             return
 
-        send_message(sender_number, "✅ Roger that. Sending the daily briefing to all users for testing...")
-        send_daily_briefing()
+        send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
+        send_test_briefing(sender_number) # Call the new targeted function
         return
         
     elif user_text.lower() == ".nuke":
@@ -713,6 +713,43 @@ def send_daily_briefing():
         send_message(user_id, briefing_message)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
+
+# --- NEW FUNCTION for targeted testing ---
+def send_test_briefing(developer_number):
+    """Sends a test daily briefing only to the developer."""
+    print(f"--- Running Test Briefing for {developer_number} ---")
+    user = get_user_from_db(developer_number)
+    if not user:
+        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
+        return
+        
+    headline = get_tech_headline()
+    weather = get_briefing_weather("Vijayawada")
+    tech_tip = get_tech_tip()
+    quote = get_daily_quote()
+    
+    user_name = user.get("name", "Developer")
+    
+    email_summary = ""
+    if user.get("is_google_connected"):
+        creds = get_credentials_from_db(developer_number)
+        if creds:
+            summary = get_email_summary(creds)
+            if summary:
+                email_summary = f"📨 *Recent Email Summary*\n_{summary}_\n\n"
+        else:
+            email_summary = "📨 *Recent Email Summary*\n_Could not fetch summary. Please try reconnecting your Google account._\n\n"
+
+    briefing_message = (
+        f"☀️ *Good Morning, {user_name}! This is a TEST of your Daily Briefing.*\n\n"
+        f"{email_summary}"
+        f"📰 *Top Tech Headline*\n_{headline}_\n\n"
+        f"📍 *Weather Update*\n{weather}\n\n"
+        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
+        f"💡 *Quote of the Day*\n_{quote}_"
+    )
+    send_message(developer_number, briefing_message)
+    print("--- Test Briefing Finished ---")
 
 
 def send_update_notification_to_all_users(feature_list):
