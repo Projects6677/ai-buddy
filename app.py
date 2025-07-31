@@ -297,7 +297,7 @@ def handle_text_message(user_text, sender_number, state):
             return
 
         send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
-        send_test_briefing(sender_number) # Call the new targeted function
+        send_test_briefing(sender_number)
         return
         
     elif user_text.lower() == ".nuke":
@@ -694,27 +694,26 @@ def send_daily_briefing():
         user_id = user["_id"]
         user_name = user.get("name", "there")
         
-        email_summary = ""
+        email_summary_section = ""
         if user.get("is_google_connected"):
             creds = get_credentials_from_db(user_id)
             if creds:
                 summary = get_email_summary(creds)
-                if summary:
-                    email_summary = f"📨 *Recent Email Summary*\n_{summary}_\n\n"
+                if summary and "Could not" not in summary:
+                    email_summary_section = f"📧 *Your Email Summary*\n_{summary}_\n\n•----------------------------------•\n\n"
 
         briefing_message = (
             f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
-            f"{email_summary}"
-            f"📰 *Top Tech Headline*\n_{headline}_\n\n"
-            f"📍 *Weather Update*\n{weather}\n\n"
-            f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
+            f"{email_summary_section}"
+            f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
+            f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
+            f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n•----------------------------------•\n\n"
             f"💡 *Quote of the Day*\n_{quote}_"
         )
         send_message(user_id, briefing_message)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
-# --- NEW FUNCTION for targeted testing ---
 def send_test_briefing(developer_number):
     """Sends a test daily briefing only to the developer."""
     print(f"--- Running Test Briefing for {developer_number} ---")
@@ -730,22 +729,22 @@ def send_test_briefing(developer_number):
     
     user_name = user.get("name", "Developer")
     
-    email_summary = ""
+    email_summary_section = ""
     if user.get("is_google_connected"):
         creds = get_credentials_from_db(developer_number)
         if creds:
             summary = get_email_summary(creds)
-            if summary:
-                email_summary = f"📨 *Recent Email Summary*\n_{summary}_\n\n"
-        else:
-            email_summary = "📨 *Recent Email Summary*\n_Could not fetch summary. Please try reconnecting your Google account._\n\n"
+            if summary and "Could not" not in summary:
+                email_summary_section = f"📧 *Your Email Summary*\n_{summary}_\n\n•----------------------------------•\n\n"
+            else:
+                email_summary_section = f"📧 *Your Email Summary*\n_Could not retrieve summary. Please check logs._\n\n•----------------------------------•\n\n"
 
     briefing_message = (
         f"☀️ *Good Morning, {user_name}! This is a TEST of your Daily Briefing.*\n\n"
-        f"{email_summary}"
-        f"📰 *Top Tech Headline*\n_{headline}_\n\n"
-        f"📍 *Weather Update*\n{weather}\n\n"
-        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
+        f"{email_summary_section}"
+        f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
+        f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
+        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n•----------------------------------•\n\n"
         f"💡 *Quote of the Day*\n_{quote}_"
     )
     send_message(developer_number, briefing_message)
