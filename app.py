@@ -19,6 +19,10 @@ import pandas as pd
 from werkzeug.middleware.proxy_fix import ProxyFix
 from pymongo import MongoClient
 from urllib.parse import urlparse
+import pickle
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+
 
 from currency import convert_currency
 from grok_ai import (
@@ -34,8 +38,8 @@ from grok_ai import (
     translate_with_grok
 )
 from email_sender import send_email
-from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip
-from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials
+from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
+from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 
 
@@ -82,8 +86,33 @@ def create_or_update_user_in_db(sender_number, data):
 
 def get_all_users_from_db():
     """Fetches all users (ID and name) from the database."""
-    return users_collection.find({}, {"_id": 1, "name": 1})
+    return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
 
+# --- NEW GOOGLE CREDENTIALS HELPER FUNCTIONS ---
+def save_credentials_to_db(sender_number, credentials):
+    """Saves pickled Google credentials to the user's document in MongoDB."""
+    pickled_creds = pickle.dumps(credentials)
+    create_or_update_user_in_db(sender_number, {"google_credentials": pickled_creds, "is_google_connected": True})
+
+def get_credentials_from_db(sender_number):
+    """
+    Gets Google credentials from the database and refreshes them if needed.
+    """
+    user_data = get_user_from_db(sender_number)
+    if not user_data or "google_credentials" not in user_data:
+        return None
+
+    creds = pickle.loads(user_data["google_credentials"])
+
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # Save the refreshed credentials back to the database
+        save_credentials_to_db(sender_number, creds)
+
+    if creds and creds.valid:
+        return creds
+    
+    return None
 
 # === ROUTES ===
 @app.route('/')
@@ -106,11 +135,8 @@ def google_auth_callback():
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
     
-    # Save the credentials token
-    save_credentials(sender_number, credentials)
-    
-    # Mark the user as connected in the database
-    create_or_update_user_in_db(sender_number, {"is_google_connected": True})
+    # Save the credentials to the database
+    save_credentials_to_db(sender_number, credentials)
     
     send_message(sender_number, "✅ Your Google account has been successfully connected!")
     user_sessions.pop(sender_number, None)
@@ -425,7 +451,7 @@ def handle_text_message(user_text, sender_number, state):
                 else:
                     response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
     elif state == "awaiting_reminder":
-        response_text = schedule_reminder(user_text, sender_number)
+        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db) # Pass the function
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
@@ -653,16 +679,27 @@ def send_daily_briefing():
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
+        user_id = user["_id"]
         user_name = user.get("name", "there")
         
+        email_summary = ""
+        # Check if the user is connected to Google
+        if user.get("is_google_connected"):
+            creds = get_credentials_from_db(user_id)
+            if creds:
+                summary = get_email_summary(creds)
+                if summary:
+                    email_summary = f"📨 *Recent Email Summary*\n_{summary}_\n\n"
+
         briefing_message = (
             f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
+            f"{email_summary}"
             f"📰 *Top Tech Headline*\n_{headline}_\n\n"
             f"📍 *Weather Update*\n{weather}\n\n"
             f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
             f"💡 *Quote of the Day*\n_{quote}_"
         )
-        send_message(user["_id"], briefing_message)
+        send_message(user_id, briefing_message)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
