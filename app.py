@@ -699,16 +699,16 @@ def send_daily_briefing():
             creds = get_credentials_from_db(user_id)
             if creds:
                 summary = get_email_summary(creds)
-                if summary and "Could not" not in summary:
+                if summary:
                     email_summary_section = f"📧 *Your Email Summary*\n_{summary}_\n\n•----------------------------------•\n\n"
 
         briefing_message = (
             f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
+            f"_{quote}_\n\n•----------------------------------•\n\n"
             f"{email_summary_section}"
             f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
             f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
-            f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n•----------------------------------•\n\n"
-            f"💡 *Quote of the Day*\n_{quote}_"
+            f"💻 *Tech Tip of the Day*\n_{tech_tip}_"
         )
         send_message(user_id, briefing_message)
         time.sleep(1)
@@ -741,11 +741,11 @@ def send_test_briefing(developer_number):
 
     briefing_message = (
         f"☀️ *Good Morning, {user_name}! This is a TEST of your Daily Briefing.*\n\n"
+        f"_{quote}_\n\n•----------------------------------•\n\n"
         f"{email_summary_section}"
         f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
         f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
-        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n•----------------------------------•\n\n"
-        f"💡 *Quote of the Day*\n_{quote}_"
+        f"💻 *Tech Tip of the Day*\n_{tech_tip}_"
     )
     send_message(developer_number, briefing_message)
     print("--- Test Briefing Finished ---")
