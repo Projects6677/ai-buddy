@@ -53,8 +53,6 @@ ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
-EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
 DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
@@ -425,12 +423,21 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "Please upload another file, or type *'done'* to finish."
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
-            send_message(sender_number, "✅ Okay, sending the email now...")
-            attachment_paths = state.get("attachment_paths", [])
-            response_text = send_email(state["recipients"], state["subject"], state["body"], attachment_paths)
-            for path in attachment_paths:
-                if os.path.exists(path): os.remove(path)
-            user_sessions.pop(sender_number, None)
+            send_message(sender_number, "✅ Okay, sending the email from your account...")
+            
+            # --- MODIFICATION START ---
+            # Get user's credentials and send email via Gmail API
+            creds = get_credentials_from_db(sender_number)
+            if creds:
+                attachment_paths = state.get("attachment_paths", [])
+                response_text = send_email(creds, state["recipients"], state["subject"], state["body"], attachment_paths)
+                for path in attachment_paths:
+                    if os.path.exists(path): os.remove(path)
+                user_sessions.pop(sender_number, None)
+            else:
+                response_text = "❌ Could not send email. Your Google account is not connected properly. Please try re-connecting."
+            # --- MODIFICATION END ---
+            
         elif user_text_lower == "attach":
             state["state"] = "awaiting_email_attachment"
             user_sessions[sender_number] = state
@@ -445,15 +452,20 @@ def handle_text_message(user_text, sender_number, state):
                     if run_time.tzinfo is None:
                         run_time = tz.localize(run_time)
                     if run_time < now:
-                        response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past. Please specify a future time."
+                        response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
                     else:
-                        attachment_paths = state.get("attachment_paths", [])
-                        scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[state["recipients"], state["subject"], state["body"], attachment_paths])
-                        response_text = f"👍 Scheduled! The email will be sent on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
-                    user_sessions.pop(sender_number, None)
+                        # Schedule email to be sent from user's account
+                        creds = get_credentials_from_db(sender_number)
+                        if creds:
+                            attachment_paths = state.get("attachment_paths", [])
+                            scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[creds, state["recipients"], state["subject"], state["body"], attachment_paths])
+                            response_text = f"👍 Scheduled! The email will be sent from your account on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+                        else:
+                            response_text = "❌ Could not schedule email. Your Google account is not connected."
+                        user_sessions.pop(sender_number, None)
                 except (date_parser.ParserError, ValueError) as e:
                     print(f"Error parsing timestamp from Grok: {e}")
-                    response_text = "I understood you want to schedule the email, but had trouble with the exact time. Please try rephrasing the time."
+                    response_text = "I understood you want to schedule the email, but had trouble with the exact time."
             else:
                 send_message(sender_number, "✏️ Applying your changes, please wait...")
                 new_body = edit_email_body(state["body"], user_text)
@@ -461,7 +473,7 @@ def handle_text_message(user_text, sender_number, state):
                     user_sessions[sender_number]["body"] = new_body
                     response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
                 else:
-                    response_text = "Sorry, I couldn't apply that change. Please try rephrasing your instruction."
+                    response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db)
         user_sessions.pop(sender_number, None)
@@ -532,8 +544,15 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_currency_conversion"
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
-            user_sessions[sender_number] = "awaiting_email_recipient"
-            response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? Please enter their email addresses, separated by commas."
+            # --- MODIFICATION START ---
+            # Check if user is connected to Google before starting email flow
+            creds = get_credentials_from_db(sender_number)
+            if creds:
+                user_sessions[sender_number] = "awaiting_email_recipient"
+                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
+            else:
+                response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
+            # --- MODIFICATION END ---
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
