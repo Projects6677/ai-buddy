@@ -18,6 +18,7 @@ from dateutil import parser as date_parser
 import pandas as pd
 from werkzeug.middleware.proxy_fix import ProxyFix
 from pymongo import MongoClient
+from urllib.parse import urlparse
 
 from currency import convert_currency
 from grok_ai import (
@@ -34,7 +35,7 @@ from grok_ai import (
 )
 from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip
-from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
+from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials
 from reminders import schedule_reminder
 
 
@@ -53,6 +54,8 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
 DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
+
 
 # --- DATABASE CONNECTION ---
 client = MongoClient(MONGO_URI)
@@ -102,21 +105,23 @@ def google_auth_callback():
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
+    
+    # Save the credentials token
     save_credentials(sender_number, credentials)
-    send_message(sender_number, "✅ Your Google Calendar has been successfully connected!")
+    
+    # Mark the user as connected in the database
+    create_or_update_user_in_db(sender_number, {"is_google_connected": True})
+    
+    send_message(sender_number, "✅ Your Google account has been successfully connected!")
     user_sessions.pop(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
 
-# --- TEST ROUTE ---
 @app.route('/test-briefing')
 def trigger_daily_briefing():
     secret = request.args.get('secret')
-    
     if not ADMIN_SECRET_KEY or secret != ADMIN_SECRET_KEY:
         return "Unauthorized: Invalid or missing secret key.", 401
-
     send_daily_briefing()
-    
     return "✅ Daily briefing has been sent to all users.", 200
 
 @app.route('/notify-update')
@@ -228,7 +233,6 @@ def handle_document_message(message, sender_number, state):
     user_sessions.pop(sender_number, None)
 
 def handle_text_message(user_text, sender_number, state):
-    # --- Intercept Developer Commands First ---
     if user_text.startswith(".dev"):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
@@ -249,7 +253,6 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
         return
 
-    # --- NEW .test command ---
     elif user_text.startswith(".test"):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
@@ -269,7 +272,6 @@ def handle_text_message(user_text, sender_number, state):
         send_daily_briefing()
         return
 
-    # --- Regular User Logic ---
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
@@ -297,23 +299,39 @@ def handle_text_message(user_text, sender_number, state):
 
     if user_text.lower() in ["hi", "hello", "hey", "start", "menu", "help", "options", "0"]:
         user_sessions.pop(sender_number, None)
-        name = user_data.get("name") if user_data else None
-        if not name:
+        if not user_data:
             response_text = "👋 Hi there! To personalize your experience, what should I call you?"
             user_sessions[sender_number] = "awaiting_name"
         else:
-            send_welcome_message(sender_number, name)
+            send_welcome_message(sender_number, user_data.get("name"))
         if response_text: send_message(sender_number, response_text)
         return
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
-        new_user_data = {"name": name, "expenses": []}
+        new_user_data = {"name": name, "expenses": [], "is_google_connected": False}
         create_or_update_user_in_db(sender_number, new_user_data)
         user_sessions.pop(sender_number, None)
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
+
+        if GOOGLE_REDIRECT_URI:
+            try:
+                parsed_uri = urlparse(request.url_root)
+                base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
+                auth_link = f"{base_url}/google-auth?state={sender_number}"
+                
+                auth_message = (
+                    "To get the most out of me (like email summaries and calendar events), connect your Google Account. "
+                    f"Click here to connect: {auth_link}"
+                )
+                send_message(sender_number, auth_message)
+                time.sleep(2)
+            except Exception as e:
+                print(f"Error generating Google Auth link: {e}")
+
         send_welcome_message(sender_number, name)
+        return
     
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
@@ -489,7 +507,7 @@ def handle_text_message(user_text, sender_number, state):
 def send_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": False}}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": True}}
     try:
         requests.post(url, headers=headers, json=data, timeout=10)
     except requests.exceptions.RequestException as e:
@@ -585,7 +603,7 @@ def extract_text_from_pdf_file(file_path):
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     user_data = get_user_from_db(sender_number)
     if not user_data:
-        user_data = {"_id": sender_number, "name": "User", "expenses": []}
+        user_data = {"_id": sender_number, "name": "User", "expenses": [], "is_google_connected": False}
     
     try:
         expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
@@ -628,7 +646,6 @@ def send_daily_briefing():
         print("No users found. Skipping job.")
         return
         
-    # Get content once
     headline = get_tech_headline()
     weather = get_briefing_weather("Vijayawada")
     tech_tip = get_tech_tip()
@@ -636,8 +653,7 @@ def send_daily_briefing():
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
-        # Personalize the greeting for each user
-        user_name = user.get("name", "there") # Fallback to "there" if name is not found
+        user_name = user.get("name", "there")
         
         briefing_message = (
             f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
