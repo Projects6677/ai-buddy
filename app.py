@@ -33,7 +33,6 @@ from grok_ai import (
     translate_with_grok
 )
 from email_sender import send_email
-# Updated import to include the new briefing functions
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip
 from google_calendar_integration import get_google_auth_flow, get_credentials, save_credentials, create_google_calendar_event
 from reminders import schedule_reminder
@@ -79,8 +78,8 @@ def create_or_update_user_in_db(sender_number, data):
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
 def get_all_users_from_db():
-    """Fetches all users from the database."""
-    return users_collection.find({}, {"_id": 1})
+    """Fetches all users (ID and name) from the database."""
+    return users_collection.find({}, {"_id": 1, "name": 1})
 
 
 # === ROUTES ===
@@ -107,6 +106,18 @@ def google_auth_callback():
     send_message(sender_number, "✅ Your Google Calendar has been successfully connected!")
     user_sessions.pop(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
+
+# --- TEST ROUTE ---
+@app.route('/test-briefing')
+def trigger_daily_briefing():
+    secret = request.args.get('secret')
+    
+    if not ADMIN_SECRET_KEY or secret != ADMIN_SECRET_KEY:
+        return "Unauthorized: Invalid or missing secret key.", 401
+
+    send_daily_briefing()
+    
+    return "✅ Daily briefing has been sent to all users.", 200
 
 @app.route('/notify-update')
 def trigger_update_notification():
@@ -236,6 +247,26 @@ def handle_text_message(user_text, sender_number, state):
 
         scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
         send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
+        return
+
+    # --- NEW .test command ---
+    elif user_text.startswith(".test"):
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+
+        parts = user_text.split()
+        if len(parts) != 2:
+            send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
+            return
+
+        passcode = parts[1]
+        if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
+            send_message(sender_number, "❌ Invalid passcode.")
+            return
+
+        send_message(sender_number, "✅ Roger that. Sending the daily briefing to all users for testing...")
+        send_daily_briefing()
         return
 
     # --- Regular User Logic ---
@@ -597,25 +628,26 @@ def send_daily_briefing():
         print("No users found. Skipping job.")
         return
         
-    # Get all the content for the new briefing
+    # Get content once
     headline = get_tech_headline()
-    weather = get_briefing_weather("Vijayawada") # You can change the default city
+    weather = get_briefing_weather("Vijayawada")
     tech_tip = get_tech_tip()
     quote = get_daily_quote()
 
-    # Build the new briefing message in the desired order
-    briefing_message = (
-        f"☀️ *Good Morning! Here is your Daily Briefing.*\n\n"
-        f"📰 *Top Tech Headline*\n_{headline}_\n\n"
-        f"📍 *Weather Update*\n{weather}\n\n"
-        f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
-        f"💡 *Quote of the Day*\n_{quote}_"
-    )
-
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
+        # Personalize the greeting for each user
+        user_name = user.get("name", "there") # Fallback to "there" if name is not found
+        
+        briefing_message = (
+            f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
+            f"📰 *Top Tech Headline*\n_{headline}_\n\n"
+            f"📍 *Weather Update*\n{weather}\n\n"
+            f"💻 *Tech Tip of the Day*\n_{tech_tip}_\n\n"
+            f"💡 *Quote of the Day*\n_{quote}_"
+        )
         send_message(user["_id"], briefing_message)
-        time.sleep(1) # Pause between messages
+        time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
 
