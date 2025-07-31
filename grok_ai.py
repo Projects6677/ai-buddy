@@ -13,6 +13,32 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+def summarize_emails_with_grok(email_text):
+    """Summarizes a block of email text using the Grok AI."""
+    if not GROK_API_KEY: return None
+    if not email_text.strip(): return None
+
+    prompt = f"""
+    You are an expert at summarizing emails. Read the following email content and provide a very short, bulleted summary of the key points.
+    Focus on the sender, the main topic, and any calls to action. Keep it concise.
+
+    Email Content:
+    ---
+    {email_text}
+    ---
+
+    Return only the summary.
+    """
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3 }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"Grok email summarization error: {e}")
+        return None
+
+
 # --- Intent Classification ---
 def is_expense_intent(text):
     if not GROK_API_KEY: return False
