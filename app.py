@@ -706,9 +706,9 @@ def send_daily_briefing():
             f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
             f"_{quote}_\n\n•----------------------------------•\n\n"
             f"{email_summary_section}"
-            f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
-            f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
-            f"💻 *Tech Tip of the Day*\n_{tech_tip}_"
+            f"📰 *Top Tech Headline*\nHere's the biggest story in tech right now:\n_{headline}_\n\n•----------------------------------•\n\n"
+            f"📍 *Weather Update*\nYour local forecast for today:\n_{weather}_\n\n•----------------------------------•\n\n"
+            f"💻 *Tech Tip of the Day*\nA little something to boost your productivity:\n_{tech_tip}_"
         )
         send_message(user_id, briefing_message)
         time.sleep(1)
@@ -743,9 +743,9 @@ def send_test_briefing(developer_number):
         f"☀️ *Good Morning, {user_name}! This is a TEST of your Daily Briefing.*\n\n"
         f"_{quote}_\n\n•----------------------------------•\n\n"
         f"{email_summary_section}"
-        f"📰 *Top Tech Headline*\n_{headline}_\n\n•----------------------------------•\n\n"
-        f"📍 *Weather Update*\n_{weather}_\n\n•----------------------------------•\n\n"
-        f"💻 *Tech Tip of the Day*\n_{tech_tip}_"
+        f"📰 *Top Tech Headline*\nHere's the biggest story in tech right now:\n_{headline}_\n\n•----------------------------------•\n\n"
+        f"📍 *Weather Update*\nYour local forecast for today:\n_{weather}_\n\n•----------------------------------•\n\n"
+        f"💻 *Tech Tip of the Day*\nA little something to boost your productivity:\n_{tech_tip}_"
     )
     send_message(developer_number, briefing_message)
     print("--- Test Briefing Finished ---")
