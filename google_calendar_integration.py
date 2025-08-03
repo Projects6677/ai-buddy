@@ -7,8 +7,6 @@ from datetime import timedelta
 
 # --- CONFIGURATION ---
 CLIENT_SECRETS_FILE = 'client_secret.json'
-# --- FINAL SCOPES ---
-# This list now includes all necessary permissions
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/gmail.readonly',
@@ -34,21 +32,23 @@ def create_google_calendar_event(credentials, task, run_time):
         
         end_time = run_time + timedelta(minutes=30)
 
+        # --- MODIFICATION START ---
+        # The fix is to provide the time in ISO format, which includes the
+        # timezone offset. The separate 'timeZone' key is removed to avoid confusion.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
                 'dateTime': run_time.isoformat(),
-                'timeZone': 'Asia/Kolkata',
             },
             'end': {
                 'dateTime': end_time.isoformat(),
-                'timeZone': 'Asia/Kolkata',
             },
             'reminders': {
                 'useDefault': True,
             },
         }
+        # --- MODIFICATION END ---
 
         created_event = service.events().insert(calendarId='primary', body=event).execute()
         
