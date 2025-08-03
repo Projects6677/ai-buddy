@@ -41,6 +41,10 @@ from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
+# --- MODIFICATION START ---
+# Import both messaging functions from the messaging file
+from messaging import send_message, send_template_message
+# --- MODIFICATION END ---
 
 
 app = Flask(__name__)
@@ -567,29 +571,11 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, response_text)
 
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
-def send_message(to, message):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message, "preview_url": True}}
-    try:
-        requests.post(url, headers=headers, json=data, timeout=10)
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send message: {e}")
-
-def send_template_message(to, template_name, components=[]):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    template_data = {"name": template_name, "language": {"code": "en"}}
-    if components:
-        template_data["components"] = components
-    data = {"messaging_product": "whatsapp", "to": to, "type": "template", "template": template_data}
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
-        print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send template message to {to}: {e.response.text if e.response else e}")
+# === UI, HELPERS, & LOGIC FUNCTIONS ---
+# --- MODIFICATION START ---
+# The send_message and send_template_message functions are now imported from messaging.py
+# The local definitions have been removed.
+# --- MODIFICATION END ---
 
 def get_welcome_message(name=""):
     name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
@@ -720,23 +706,29 @@ def send_daily_briefing():
         user_id = user["_id"]
         user_name = user.get("name", "there")
         
-        email_summary_section = ""
+        email_summary = "Not connected."
         if user.get("is_google_connected"):
             creds = get_credentials_from_db(user_id)
             if creds:
                 summary = get_email_summary(creds)
                 if summary:
-                    email_summary_section = f"📧 *Your Email Summary*\n_{summary}_\n\n•----------------------------------•\n\n"
-
-        briefing_message = (
-            f"☀️ *Good Morning, {user_name}! Here is your Daily Briefing.*\n\n"
-            f"_{quote}_\n\n•----------------------------------•\n\n"
-            f"{email_summary_section}"
-            f"📰 *Top Tech Headline*\nHere's the biggest story in tech right now:\n_{headline}_\n\n•----------------------------------•\n\n"
-            f"📍 *Weather Update*\nYour local forecast for today:\n_{weather}_\n\n•----------------------------------•\n\n"
-            f"💻 *Tech Tip of the Day*\nA little something to boost your productivity:\n_{tech_tip}_"
-        )
-        send_message(user_id, briefing_message)
+                    email_summary = summary
+                else:
+                    email_summary = "No important updates found."
+        
+        template_name = "daily_briefing"
+        components = [
+            {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
+            {"type": "body", "parameters": [
+                {"type": "text", "text": quote},
+                {"type": "text", "text": email_summary},
+                {"type": "text", "text": headline},
+                {"type": "text", "text": weather},
+                {"type": "text", "text": tech_tip}
+            ]}
+        ]
+        
+        send_template_message(user_id, template_name, components)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
@@ -755,25 +747,29 @@ def send_test_briefing(developer_number):
     
     user_name = user.get("name", "Developer")
     
-    email_summary_section = ""
+    email_summary = "Not connected."
     if user.get("is_google_connected"):
         creds = get_credentials_from_db(developer_number)
         if creds:
             summary = get_email_summary(creds)
-            if summary and "Could not" not in summary:
-                email_summary_section = f"📧 *Your Email Summary*\n_{summary}_\n\n•----------------------------------•\n\n"
+            if summary:
+                email_summary = summary
             else:
-                email_summary_section = f"📧 *Your Email Summary*\n_Could not retrieve summary. Please check logs._\n\n•----------------------------------•\n\n"
+                email_summary = "No important updates found."
 
-    briefing_message = (
-        f"☀️ *Good Morning, {user_name}! This is a TEST of your Daily Briefing.*\n\n"
-        f"_{quote}_\n\n•----------------------------------•\n\n"
-        f"{email_summary_section}"
-        f"📰 *Top Tech Headline*\nHere's the biggest story in tech right now:\n_{headline}_\n\n•----------------------------------•\n\n"
-        f"📍 *Weather Update*\nYour local forecast for today:\n_{weather}_\n\n•----------------------------------•\n\n"
-        f"💻 *Tech Tip of the Day*\nA little something to boost your productivity:\n_{tech_tip}_"
-    )
-    send_message(developer_number, briefing_message)
+    template_name = "daily_briefing"
+    components = [
+        {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
+        {"type": "body", "parameters": [
+            {"type": "text", "text": quote},
+            {"type": "text", "text": email_summary},
+            {"type": "text", "text": headline},
+            {"type": "text", "text": weather},
+            {"type": "text", "text": tech_tip}
+        ]}
+    ]
+    
+    send_template_message(developer_number, template_name, components)
     print("--- Test Briefing Finished ---")
 
 
