@@ -41,10 +41,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
-# --- MODIFICATION START ---
-# Import both messaging functions from the messaging file
-from messaging import send_message, send_template_message
-# --- MODIFICATION END ---
+from messaging import send_message, send_template_message, send_interactive_menu
 
 
 app = Flask(__name__)
@@ -212,7 +209,11 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        if msg_type == "text":
+        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "list_reply":
+            list_reply = message["interactive"]["list_reply"]
+            selection_id = list_reply["id"]
+            handle_text_message(selection_id, sender_number, state)
+        elif msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
         elif msg_type == "document":
@@ -571,32 +572,9 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, response_text)
 
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ---
-# --- MODIFICATION START ---
-# The send_message and send_template_message functions are now imported from messaging.py
-# The local definitions have been removed.
-# --- MODIFICATION END ---
-
-def get_welcome_message(name=""):
-    name_line = f"👋 Welcome back, *{name}*!" if name else "👋 Welcome!"
-    return (
-        f"{name_line}\n\n"
-        "How can I assist you today?\n\n"
-        "1️⃣  *Set a Reminder* ⏰\n"
-        "2️⃣  *Fix Grammar* ✍️\n"
-        "3️⃣  *Ask AI Anything* 💬\n"
-        "4️⃣  *File/Text Conversion* 📄\n"
-        "5️⃣  *Translator* 🌍\n"
-        "6️⃣  *Weather Forecast* ⛅\n"
-        "7️⃣  *Currency Converter* 💱\n"
-        "8️⃣  *AI Email Assistant* 📧\n\n"
-        "📌 Reply with a number (1–8) to begin.\n\n"
-        "💡 _Daily Briefings are sent every morning!_\n\n"
-        "✨ _Hidden Feature: I'm also an AI expense tracker! Just tell me what you spent._"
-    )
-
+# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_welcome_message(to, name):
-    send_message(to, get_welcome_message(name))
+    send_interactive_menu(to, name)
 
 def get_conversion_menu():
     return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
