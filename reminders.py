@@ -3,7 +3,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from dateutil import parser as date_parser
 import pytz
-from messaging import send_message
+# Import send_template_message instead of send_message
+from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
 
@@ -14,7 +15,6 @@ if not scheduler.running:
 def schedule_reminder(msg, user, get_creds_func):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
-    `get_creds_func` is a function passed from app.py to get credentials from the DB.
     """
     task, timestamp_str = parse_reminder_with_grok(msg)
 
@@ -32,21 +32,32 @@ def schedule_reminder(msg, user, get_creds_func):
         if run_time < now:
             return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
 
-        # Schedule the WhatsApp reminder
+        # --- MODIFICATION START ---
+        # Prepare the components for the template message
+        template_name = "reminder_alert"
+        components = [{
+            "type": "body",
+            "parameters": [{
+                "type": "text",
+                "text": task
+            }]
+        }]
+
+        # Schedule the template message to be sent
         scheduler.add_job(
-            func=send_message,
+            func=send_template_message,
             trigger='date',
             run_date=run_time,
-            args=[user, f"⏰ Reminder: {task}"],
+            args=[user, template_name, components],
             id=f"reminder_{user}_{int(run_time.timestamp())}",
             replace_existing=True
         )
+        # --- MODIFICATION END ---
 
         base_confirmation = f"✅ Reminder set for '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
         gcal_confirmation = ""
         event_link_text = ""
 
-        # Check for Google Calendar credentials using the passed function
         creds = get_creds_func(user)
         if creds:
             gcal_message, event_link = create_google_calendar_event(creds, task, run_time)
