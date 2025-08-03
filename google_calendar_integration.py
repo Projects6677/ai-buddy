@@ -12,7 +12,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send'
 ]
-REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https_your_app_url.com/google-auth/callback")
+REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
@@ -33,16 +33,18 @@ def create_google_calendar_event(credentials, task, run_time):
         end_time = run_time + timedelta(minutes=30)
 
         # --- MODIFICATION START ---
-        # The fix is to provide the time in ISO format, which includes the
-        # timezone offset. The separate 'timeZone' key is removed to avoid confusion.
+        # This is the final, more explicit way to set the time and timezone.
+        # We provide a naive time string and a separate timezone identifier.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
-                'dateTime': run_time.isoformat(),
+                'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'timeZone': 'Asia/Kolkata',
             },
             'end': {
-                'dateTime': end_time.isoformat(),
+                'dateTime': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'timeZone': 'Asia/Kolkata',
             },
             'reminders': {
                 'useDefault': True,
