@@ -32,10 +32,13 @@ def send_template_message(to, template_name, components=[]):
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
+    # --- MODIFICATION START ---
+    # Changed language code to "en" to match your templates
     template_data = {
         "name": template_name,
-        "language": {"code": "en_US"}
+        "language": {"code": "en"}
     }
+    # --- MODIFICATION END ---
     if components:
         template_data["components"] = components
         
