@@ -36,15 +36,15 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok,
     translate_with_grok,
-    analyze_document_intent, # Import the new function
-    summarize_emails_with_grok # For summarization
+    analyze_document_intent,
+    summarize_emails_with_grok
 )
 from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu
-from document_processor import get_text_from_file # Import the new function
+from document_processor import get_text_from_file
 
 
 app = Flask(__name__)
@@ -230,15 +230,11 @@ def webhook():
 
 # === MESSAGE HANDLERS ===
 def handle_document_message(message, sender_number, state):
-    # --- MODIFICATION START ---
-    # This function is now the main entry point for proactive document analysis
-    
     media_id = message.get(message['type'], {}).get('id')
     if not media_id:
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
-    # Handle attachments for emails if in that specific state
     if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
         filename = message.get('document', {}).get('filename', 'attached_file')
         send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
@@ -255,7 +251,6 @@ def handle_document_message(message, sender_number, state):
             send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
         return
 
-    # --- Proactive Document Analysis Flow ---
     send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
     downloaded_path, mime_type = download_media_from_whatsapp(media_id)
     
@@ -263,14 +258,12 @@ def handle_document_message(message, sender_number, state):
         send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
         return
 
-    # 1. Extract text from the file
     extracted_text = get_text_from_file(downloaded_path, mime_type)
     if not extracted_text:
         send_message(sender_number, "❌ I couldn't find any readable text in that file.")
         if os.path.exists(downloaded_path): os.remove(downloaded_path)
         return
 
-    # 2. Analyze the text with AI to get intent
     analysis = analyze_document_intent(extracted_text)
     if not analysis:
         send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it. Could you be more specific?")
@@ -280,7 +273,6 @@ def handle_document_message(message, sender_number, state):
     intent = analysis.get("intent")
     data = analysis.get("data")
 
-    # 3. Execute the action based on the intent
     if intent == "answer_questions":
         questions = data.get("questions", [])
         if questions:
@@ -293,7 +285,6 @@ def handle_document_message(message, sender_number, state):
         task = data.get("task")
         timestamp = data.get("timestamp")
         if task and timestamp:
-            # Re-use the reminder logic
             response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
             send_message(sender_number, response)
         else:
@@ -311,7 +302,7 @@ def handle_document_message(message, sender_number, state):
     elif intent == "summarize":
         text_to_summarize = data.get("text")
         if text_to_summarize:
-            summary = summarize_emails_with_grok(text_to_summarize) # Re-use the email summarizer
+            summary = summarize_emails_with_grok(text_to_summarize)
             if summary:
                 send_message(sender_number, f"📝 *Here's a summary of your document:*\n\n_{summary}_")
             else:
@@ -322,11 +313,8 @@ def handle_document_message(message, sender_number, state):
     else:
         send_message(sender_number, "🤔 I'm not sure what to do with that document. You can try asking me to summarize it directly.")
 
-    # Clean up the downloaded file
     if os.path.exists(downloaded_path):
         os.remove(downloaded_path)
-    # --- MODIFICATION END ---
-
 
 def handle_text_message(user_text, sender_number, state):
     if user_text.startswith(".dev"):
@@ -620,7 +608,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
