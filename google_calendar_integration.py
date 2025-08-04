@@ -33,18 +33,17 @@ def create_google_calendar_event(credentials, task, run_time):
         end_time = run_time + timedelta(minutes=30)
 
         # --- MODIFICATION START ---
-        # This is the final, more explicit way to set the time and timezone.
-        # We provide a naive time string and a separate timezone identifier.
+        # This fix uses the .isoformat() method on the timezone-aware datetime
+        # object. This creates a string like "2025-08-04T16:00:00+05:30",
+        # which is the universally accepted standard and removes all ambiguity.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
-                'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'),
-                'timeZone': 'Asia/Kolkata',
+                'dateTime': run_time.isoformat(),
             },
             'end': {
-                'dateTime': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
-                'timeZone': 'Asia/Kolkata',
+                'dateTime': end_time.isoformat(),
             },
             'reminders': {
                 'useDefault': True,
