@@ -1,20 +1,19 @@
 # reminders.py
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from dateutil import parser as date_parser
 import pytz
-# Import send_template_message instead of send_message
 from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
 
-scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-if not scheduler.running:
-    scheduler.start()
+# --- MODIFICATION START ---
+# The separate scheduler instance has been REMOVED from this file.
+# --- MODIFICATION END ---
 
-def schedule_reminder(msg, user, get_creds_func):
+def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
+    It now receives the main scheduler instance from app.py.
     """
     task, timestamp_str = parse_reminder_with_grok(msg)
 
@@ -32,8 +31,6 @@ def schedule_reminder(msg, user, get_creds_func):
         if run_time < now:
             return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
 
-        # --- MODIFICATION START ---
-        # Prepare the components for the template message
         template_name = "reminder_alert"
         components = [{
             "type": "body",
@@ -43,7 +40,8 @@ def schedule_reminder(msg, user, get_creds_func):
             }]
         }]
 
-        # Schedule the template message to be sent
+        # --- MODIFICATION START ---
+        # This now uses the main scheduler passed in from app.py
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
