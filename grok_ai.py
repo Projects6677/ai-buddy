@@ -14,6 +14,53 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+def analyze_document_intent(text):
+    """
+    Analyzes extracted text to determine the primary intent and extract relevant data.
+    """
+    if not GROK_API_KEY: return None
+    if not text or not text.strip(): return None
+
+    prompt = f"""
+    You are an expert document analysis AI. Read the following text and determine the single most likely user intent.
+    Your response MUST be a JSON object with two keys: "intent" and "data".
+
+    Possible intents are:
+    1. "answer_questions": If the text is a list of questions.
+    2. "schedule_meeting": If the text describes a meeting, appointment, or event with a specific time.
+    3. "log_expense": If the text looks like a receipt or an expense record with a clear cost.
+    4. "summarize": If the text is a general article, notes, or any other document that doesn't fit the above categories.
+
+    The "data" key should contain the information needed for that intent:
+    - For "answer_questions", data should be: {{"questions": ["question1", "question2"]}}
+    - For "schedule_meeting", data should be: {{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}
+    - For "log_expense", data should be: {{"cost": 12.34, "item": "description of item"}}
+    - For "summarize", data should be: {{"text": "the full original text"}}
+
+    The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
+
+    Here is the text to analyze:
+    ---
+    {text}
+    ---
+
+    Return only the JSON object.
+    """
+    payload = {
+        "model": GROK_MODEL_SMART,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"}
+    }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"Grok document analysis error: {e}")
+        return None
+
 # --- MODIFIED FUNCTION ---
 def summarize_emails_with_grok(email_text):
     """Summarizes a block of email text using the Grok AI."""
