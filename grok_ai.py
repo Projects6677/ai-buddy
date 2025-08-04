@@ -14,85 +14,43 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
-def analyze_document_intent(text):
+# --- NEW AI BRAIN FUNCTION ---
+def get_ai_document_response(text):
     """
-    Analyzes extracted text to determine the primary intent and extract relevant data.
+    Analyzes any document text and generates a direct, helpful response.
     """
-    if not GROK_API_KEY: return None
-    if not text or not text.strip(): return None
+    if not GROK_API_KEY: return "❌ The Grok API key is not configured."
+    if not text or not text.strip(): return "The document appears to be empty."
 
     prompt = f"""
-    You are an expert document analysis AI. Read the following text and determine the single most likely user intent.
-    Your response MUST be a JSON object with two keys: "intent" and "data".
+    You are a world-class AI assistant named AI Buddy. A user has uploaded a document. Your task is to analyze its content and provide the most direct and helpful response possible. The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
 
-    Possible intents are:
-    1. "answer_questions": If the text is a list of questions.
-    2. "schedule_meeting": If the text describes a meeting, appointment, or event with a specific time.
-    3. "log_expense": If the text looks like a receipt or an expense record with a clear cost.
-    4. "summarize": If the text is a general article, notes, or any other document that doesn't fit the above categories.
+    Here are your instructions based on the document type:
+    - If it's a resume: Provide a professional critique. Include a score out of 10, list 2-3 strengths, and suggest 2-3 specific improvements.
+    - If it contains questions: Answer them clearly and concisely.
+    - If it's a general article, notes, or a long text: Provide a neat, bulleted summary of the key points.
+    - If it's a recipe: Format it nicely with ingredients and steps.
+    - For any other document: Use your best judgment to provide the most useful response.
 
-    The "data" key should contain the information needed for that intent:
-    - For "answer_questions", data should be: {{"questions": ["question1", "question2"]}}
-    - For "schedule_meeting", data should be: {{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}
-    - For "log_expense", data should be: {{"cost": 12.34, "item": "description of item"}}
-    - For "summarize", data should be: {{"text": "the full original text"}}
-
-    The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
-
-    Here is the text to analyze:
+    Here is the content of the document:
     ---
     {text}
     ---
 
-    Return only the JSON object.
+    Your response should be formatted and ready to send directly to the user.
     """
     payload = {
         "model": GROK_MODEL_SMART,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
+        "temperature": 0.4,
     }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=60) # Increased timeout for complex docs
         response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        return json.loads(result_text)
+        return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         print(f"Grok document analysis error: {e}")
-        return None
-
-# --- MODIFIED FUNCTION ---
-def summarize_emails_with_grok(email_text):
-    """Summarizes a block of email text using the Grok AI."""
-    if not GROK_API_KEY: return None
-    if not email_text.strip(): return None
-
-    prompt = f"""
-    You are an expert at summarizing emails into a neat, bulleted list.
-    Read the following email content and provide a very short, clean summary of the key points.
-    Each point must start with a hyphen (-).
-    Focus on the sender and the main topic.
-    If there is nothing important or no content, return the single phrase "No important updates."
-
-    Email Content:
-    ---
-    {email_text}
-    ---
-
-    Return only the summary.
-    """
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
-        response.raise_for_status()
-        summary = response.json()["choices"][0]["message"]["content"].strip()
-        # Ensure it returns None if the model says there's nothing important
-        if "no important updates" in summary.lower():
-            return None
-        return summary
-    except Exception as e:
-        print(f"Grok email summarization error: {e}")
-        return None
+        return "⚠️ Sorry, I had trouble analyzing that document. It might be too long or complex."
 
 # --- Intent Classification ---
 def is_expense_intent(text):
@@ -212,6 +170,36 @@ def parse_currency_with_grok(text):
         return None
 
 # --- AI Email Functions ---
+def summarize_emails_with_grok(email_text):
+    if not GROK_API_KEY: return None
+    if not email_text.strip(): return None
+
+    prompt = f"""
+    You are an expert at summarizing emails into a neat, bulleted list.
+    Read the following email content and provide a very short, clean summary of the key points.
+    Each point must start with a hyphen (-).
+    Focus on the sender and the main topic.
+    If there is nothing important or no content, return the single phrase "No important updates."
+
+    Email Content:
+    ---
+    {email_text}
+    ---
+
+    Return only the summary.
+    """
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2 }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
+        response.raise_for_status()
+        summary = response.json()["choices"][0]["message"]["content"].strip()
+        if "no important updates" in summary.lower():
+            return None
+        return summary
+    except Exception as e:
+        print(f"Grok email summarization error: {e}")
+        return None
+
 def analyze_email_subject(subject):
     if not GROK_API_KEY: return None
     prompt = f"""
