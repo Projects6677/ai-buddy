@@ -422,27 +422,25 @@ def handle_text_message(user_text, sender_number, state):
         send_welcome_message(sender_number, name)
         return
     
-    # --- NEW CONVERSATIONAL LOGIC ---
     elif isinstance(state, dict) and state.get("state") == "awaiting_document_question":
         doc_type = state.get("doc_type")
         doc_text = state.get("document_text")
         doc_data = state.get("data", {})
 
-        if doc_type == "meeting_invite" and user_text_lower in ["yes", "ok", "sure", "yep"]:
+        if doc_type == "meeting_invite" and user_text_lower in ["yes", "ok", "sure", "yep", "schedule it"]:
             task = doc_data.get("task")
             timestamp = doc_data.get("timestamp")
             if task and timestamp:
                 response_text = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
             else:
                 response_text = "I seem to have lost the details. Could you try uploading the invite again?"
-            user_sessions.pop(sender_number, None) # End conversation
+            user_sessions.pop(sender_number, None)
         else:
             send_message(sender_number, "🤖 Thinking...")
             response_text = get_contextual_ai_response(doc_text, user_text)
-            # Keep the state so the user can ask more questions
             send_message(sender_number, response_text)
             send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-            return # Return early to prevent other logic from running
+            return
 
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
@@ -633,7 +631,7 @@ def send_welcome_message(to, name):
     send_interactive_menu(to, name)
 
 def get_conversion_menu():
-    return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
+    return "� *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
 
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
