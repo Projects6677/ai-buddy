@@ -37,7 +37,8 @@ from grok_ai import (
     write_email_body_with_grok,
     translate_with_grok,
     analyze_document_context, 
-    get_contextual_ai_response
+    get_contextual_ai_response,
+    is_document_followup_question
 )
 from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
@@ -273,7 +274,6 @@ def handle_document_message(message, sender_number, state):
     doc_type = analysis.get("doc_type")
     data = analysis.get("data", {})
 
-    # Save context to session for follow-up questions
     user_sessions[sender_number] = {
         "state": "awaiting_document_question",
         "document_text": extracted_text,
@@ -281,7 +281,6 @@ def handle_document_message(message, sender_number, state):
         "data": data
     }
 
-    # Craft the initial response based on the document type
     if doc_type == "resume":
         response = "I've analyzed your resume. I can give you a score and feedback, or you can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
     elif doc_type == "project_plan":
@@ -291,7 +290,7 @@ def handle_document_message(message, sender_number, state):
         response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
     elif doc_type == "q_and_a":
         response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
-    else: # generic_document
+    else:
         response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
 
     send_message(sender_number, response)
@@ -359,10 +358,35 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, stats_message)
         return
 
+    if isinstance(state, dict) and state.get("state") == "awaiting_document_question":
+        if not is_document_followup_question(user_text):
+            user_sessions.pop(sender_number, None)
+            state = None
+        else:
+            doc_type = state.get("doc_type")
+            doc_text = state.get("document_text")
+            doc_data = state.get("data", {})
+
+            if doc_type == "meeting_invite" and user_text.lower() in ["yes", "ok", "sure", "yep", "schedule it"]:
+                task = doc_data.get("task")
+                timestamp = doc_data.get("timestamp")
+                if task and timestamp:
+                    response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
+                    send_message(sender_number, response)
+                else:
+                    send_message(sender_number, "I seem to have lost the details. Could you try uploading the invite again?")
+                user_sessions.pop(sender_number, None)
+            else:
+                send_message(sender_number, "🤖 Thinking...")
+                response = get_contextual_ai_response(doc_text, user_text)
+                send_message(sender_number, response)
+                send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+            return
+    
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
-    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
+    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']):
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number, user_data)
         if file_path:
@@ -372,7 +396,7 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "You have no expenses to export yet.")
         return
 
-    if is_expense_intent(user_text) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
+    if is_expense_intent(user_text):
         send_message(sender_number, "Analyzing expense...")
         expenses = parse_expense_with_grok(user_text)
         if expenses:
@@ -422,26 +446,6 @@ def handle_text_message(user_text, sender_number, state):
         send_welcome_message(sender_number, name)
         return
     
-    elif isinstance(state, dict) and state.get("state") == "awaiting_document_question":
-        doc_type = state.get("doc_type")
-        doc_text = state.get("document_text")
-        doc_data = state.get("data", {})
-
-        if doc_type == "meeting_invite" and user_text_lower in ["yes", "ok", "sure", "yep", "schedule it"]:
-            task = doc_data.get("task")
-            timestamp = doc_data.get("timestamp")
-            if task and timestamp:
-                response_text = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
-            else:
-                response_text = "I seem to have lost the details. Could you try uploading the invite again?"
-            user_sessions.pop(sender_number, None)
-        else:
-            send_message(sender_number, "🤖 Thinking...")
-            response_text = get_contextual_ai_response(doc_text, user_text)
-            send_message(sender_number, response_text)
-            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-            return
-
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -540,7 +544,7 @@ def handle_text_message(user_text, sender_number, state):
                 new_body = edit_email_body(state["body"], user_text)
                 if new_body:
                     user_sessions[sender_number]["body"] = new_body
-                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
+                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
@@ -631,7 +635,7 @@ def send_welcome_message(to, name):
     send_interactive_menu(to, name)
 
 def get_conversion_menu():
-    return "� *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
+    return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
 
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
@@ -686,7 +690,8 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
         expense_time = datetime.now(pytz.timezone('Asia/Kolkata'))
     
     tz = pytz.timezone('Asia/Kolkata')
-    if expense_time.tzinfo is None: expense_time = tz.localize(expense_time)
+    if expense_time.tzinfo is None:
+        expense_time = tz.localize(expense_time)
     
     new_expense = {"cost": amount, "item": item, "place": place or "N/A", "timestamp": expense_time.isoformat()}
     
