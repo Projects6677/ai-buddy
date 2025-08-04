@@ -36,8 +36,8 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok,
     translate_with_grok,
-    analyze_document_intent,
-    summarize_emails_with_grok
+    analyze_document_context, 
+    get_contextual_ai_response
 )
 from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
@@ -264,54 +264,37 @@ def handle_document_message(message, sender_number, state):
         if os.path.exists(downloaded_path): os.remove(downloaded_path)
         return
 
-    analysis = analyze_document_intent(extracted_text)
+    analysis = analyze_document_context(extracted_text)
     if not analysis:
-        send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it. Could you be more specific?")
+        send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
         if os.path.exists(downloaded_path): os.remove(downloaded_path)
         return
         
-    intent = analysis.get("intent")
-    data = analysis.get("data")
+    doc_type = analysis.get("doc_type")
+    data = analysis.get("data", {})
 
-    if intent == "answer_questions":
-        questions = data.get("questions", [])
-        if questions:
-            answers = [f"❓ _{q}_\n\n🤖 {ai_reply(q)}" for q in questions]
-            send_message(sender_number, "\n\n".join(answers))
-        else:
-            send_message(sender_number, "I see questions, but I couldn't extract them properly.")
+    # Save context to session for follow-up questions
+    user_sessions[sender_number] = {
+        "state": "awaiting_document_question",
+        "document_text": extracted_text,
+        "doc_type": doc_type,
+        "data": data
+    }
 
-    elif intent == "schedule_meeting":
-        task = data.get("task")
-        timestamp = data.get("timestamp")
-        if task and timestamp:
-            response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
-            send_message(sender_number, response)
-        else:
-            send_message(sender_number, "I see a meeting, but I couldn't figure out the exact details.")
+    # Craft the initial response based on the document type
+    if doc_type == "resume":
+        response = "I've analyzed your resume. I can give you a score and feedback, or you can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
+    elif doc_type == "project_plan":
+        response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
+    elif doc_type == "meeting_invite":
+        task = data.get("task", "this event")
+        response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
+    elif doc_type == "q_and_a":
+        response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
+    else: # generic_document
+        response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
 
-    elif intent == "log_expense":
-        cost = data.get("cost")
-        item = data.get("item")
-        if cost and item:
-            response = log_expense(sender_number, cost, item)
-            send_message(sender_number, response)
-        else:
-            send_message(sender_number, "I see an expense, but couldn't extract the cost and item.")
-
-    elif intent == "summarize":
-        text_to_summarize = data.get("text")
-        if text_to_summarize:
-            summary = summarize_emails_with_grok(text_to_summarize)
-            if summary:
-                send_message(sender_number, f"📝 *Here's a summary of your document:*\n\n_{summary}_")
-            else:
-                send_message(sender_number, "I tried to summarize the document, but I couldn't generate a good summary.")
-        else:
-            send_message(sender_number, "I understood I should summarize, but couldn't extract the text.")
-            
-    else:
-        send_message(sender_number, "🤔 I'm not sure what to do with that document. You can try asking me to summarize it directly.")
+    send_message(sender_number, response)
 
     if os.path.exists(downloaded_path):
         os.remove(downloaded_path)
@@ -379,7 +362,7 @@ def handle_text_message(user_text, sender_number, state):
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
-    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not state:
+    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number, user_data)
         if file_path:
@@ -389,7 +372,7 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "You have no expenses to export yet.")
         return
 
-    if is_expense_intent(user_text) and not state:
+    if is_expense_intent(user_text) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
         send_message(sender_number, "Analyzing expense...")
         expenses = parse_expense_with_grok(user_text)
         if expenses:
@@ -439,6 +422,28 @@ def handle_text_message(user_text, sender_number, state):
         send_welcome_message(sender_number, name)
         return
     
+    # --- NEW CONVERSATIONAL LOGIC ---
+    elif isinstance(state, dict) and state.get("state") == "awaiting_document_question":
+        doc_type = state.get("doc_type")
+        doc_text = state.get("document_text")
+        doc_data = state.get("data", {})
+
+        if doc_type == "meeting_invite" and user_text_lower in ["yes", "ok", "sure", "yep"]:
+            task = doc_data.get("task")
+            timestamp = doc_data.get("timestamp")
+            if task and timestamp:
+                response_text = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
+            else:
+                response_text = "I seem to have lost the details. Could you try uploading the invite again?"
+            user_sessions.pop(sender_number, None) # End conversation
+        else:
+            send_message(sender_number, "🤖 Thinking...")
+            response_text = get_contextual_ai_response(doc_text, user_text)
+            # Keep the state so the user can ask more questions
+            send_message(sender_number, response_text)
+            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+            return # Return early to prevent other logic from running
+
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -608,7 +613,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
