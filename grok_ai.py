@@ -61,6 +61,41 @@ def analyze_document_context(text):
         print(f"Grok document context analysis error: {e}")
         return None
 
+def is_document_followup_question(text):
+    """
+    Quickly determines if a user's message is a follow-up question or a new command.
+    """
+    if not GROK_API_KEY: return True # Default to true if AI is not available
+
+    # First, do a quick check for obvious commands to save time and API calls
+    command_keywords = ["remind me", "hi", "hello", "hey", "menu", "what's the weather", "convert", "translate", "fix grammar", "my expenses", "send an email", ".dev", ".test", ".nuke", ".stats"]
+    text_lower = text.lower()
+    if any(keyword in text_lower for keyword in command_keywords):
+        return False
+
+    # If it's not an obvious command, use AI to be sure
+    prompt = f"""
+    A user has previously uploaded a document and is in a follow-up conversation.
+    Their new message is: "{text}"
+    Is this message a question or command related to the document (e.g., "summarize it", "what are the key points?", "critique it")?
+    Or is it a completely new, unrelated command (e.g., a greeting, a reminder request, a weather query)?
+    Respond with only the word "yes" if it is a follow-up, or "no" if it is a new command.
+    """
+    payload = {
+        "model": GROK_MODEL_FAST,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+        "max_tokens": 5
+    }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=10)
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"].strip().lower()
+        return "yes" in reply
+    except Exception as e:
+        print(f"Grok context check error: {e}")
+        return True # Default to assuming it's a follow-up if AI fails
+
 def get_contextual_ai_response(document_text, question):
     """
     Answers a user's question based on the context of a previously uploaded document.
