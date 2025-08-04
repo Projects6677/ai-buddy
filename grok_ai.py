@@ -14,45 +14,90 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# --- NEW AI BRAIN FUNCTION ---
-def get_ai_document_response(text):
+# --- NEW CONVERSATIONAL AI FUNCTIONS ---
+
+def analyze_document_context(text):
     """
-    Analyzes any document text and generates a direct, helpful response.
+    Analyzes document text to understand its type and extract key data for follow-up actions.
     """
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured."
-    if not text or not text.strip(): return "The document appears to be empty."
+    if not GROK_API_KEY: return None
+    if not text or not text.strip(): return None
 
     prompt = f"""
-    You are a world-class AI assistant named AI Buddy. A user has uploaded a document. Your task is to analyze its content and provide the most direct and helpful response possible. The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
+    You are an expert document analysis AI. Read the following text and determine its type and extract key information.
+    Your response MUST be a JSON object with two keys: "doc_type" and "data".
 
-    Here are your instructions based on the document type:
-    - If it's a resume: Provide a professional critique. Include a score out of 10, list 2-3 strengths, and suggest 2-3 specific improvements.
-    - If it contains questions: Answer them clearly and concisely.
-    - If it's a general article, notes, or a long text: Provide a neat, bulleted summary of the key points.
-    - If it's a recipe: Format it nicely with ingredients and steps.
-    - For any other document: Use your best judgment to provide the most useful response.
+    Possible "doc_type" values are:
+    1. "resume": For a professional resume or CV.
+    2. "project_plan": For a document outlining a project, idea, or business plan.
+    3. "meeting_invite": If the text is an invitation with a clear task and time.
+    4. "q_and_a": If the document is primarily a list of questions.
+    5. "generic_document": For articles, notes, or anything else.
 
-    Here is the content of the document:
+    The "data" key should be an empty object `{{}}` unless it's a "meeting_invite", in which case it should be:
+    `{{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}`
+
+    The current date is {datetime.now().strftime('%Y-%m-%d %A')}.
+
+    Here is the text to analyze:
     ---
     {text}
     ---
 
-    Your response should be formatted and ready to send directly to the user.
+    Return only the JSON object.
     """
     payload = {
         "model": GROK_MODEL_SMART,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.4,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"}
     }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=60) # Increased timeout for complex docs
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"Grok document context analysis error: {e}")
+        return None
+
+def get_contextual_ai_response(document_text, question):
+    """
+    Answers a user's question based on the context of a previously uploaded document.
+    """
+    if not GROK_API_KEY: return "❌ The Grok API key is not configured."
+
+    prompt = f"""
+    You are an AI assistant with a document's content loaded into your memory.
+    A user is now asking a question about this document. Your task is to answer their question based *only* on the information provided in the document text.
+
+    Here is the full text of the document:
+    --- DOCUMENT START ---
+    {document_text}
+    --- DOCUMENT END ---
+
+    Here is the user's question:
+    "{question}"
+
+    Provide a direct and helpful answer. If the answer cannot be found in the document, say "I couldn't find the answer to that in the document."
+    """
+    payload = {
+        "model": GROK_MODEL_SMART,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+    }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=60)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        print(f"Grok document analysis error: {e}")
-        return "⚠️ Sorry, I had trouble analyzing that document. It might be too long or complex."
+        print(f"Grok contextual response error: {e}")
+        return "⚠️ Sorry, I had trouble answering that question."
 
-# --- Intent Classification ---
+
+# (Keep all other existing functions below this)
+# ... (is_expense_intent, ai_reply, etc.)
+# ...
 def is_expense_intent(text):
     if not GROK_API_KEY: return False
     prompt = f"""
@@ -71,7 +116,6 @@ def is_expense_intent(text):
         print(f"Grok intent classification error: {e}")
         return False
 
-# --- Main AI Chat & Grammar ---
 def ai_reply(prompt):
     if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
     payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7 }
@@ -103,7 +147,6 @@ def correct_grammar_with_grok(text):
         print(f"Grok Grammar error: {e}")
         return "⚠️ Sorry, the grammar correction service is unavailable."
 
-# --- AI Parsing Functions ---
 def parse_expense_with_grok(text):
     if not GROK_API_KEY: return None
     prompt = f"""
@@ -169,7 +212,6 @@ def parse_currency_with_grok(text):
         print(f"Grok currency parsing error: {e}")
         return None
 
-# --- AI Email Functions ---
 def summarize_emails_with_grok(email_text):
     if not GROK_API_KEY: return None
     if not email_text.strip(): return None
