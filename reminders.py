@@ -6,9 +6,7 @@ from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
 
-# --- MODIFICATION START ---
 # The separate scheduler instance has been REMOVED from this file.
-# --- MODIFICATION END ---
 
 def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
@@ -40,8 +38,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             }]
         }]
 
-        # --- MODIFICATION START ---
-        # This now uses the main scheduler passed in from app.py
+        # This now uses the main scheduler passed in from app.py, fixing the bug
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
@@ -50,7 +47,6 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             id=f"reminder_{user}_{int(run_time.timestamp())}",
             replace_existing=True
         )
-        # --- MODIFICATION END ---
 
         base_confirmation = f"✅ Reminder set for '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
         gcal_confirmation = ""
