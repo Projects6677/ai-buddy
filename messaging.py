@@ -33,10 +33,10 @@ def send_template_message(to, template_name, components=[]):
         "Content-Type": "application/json"
     }
     # --- MODIFICATION START ---
-    # Changed language code to "en_IN" to match your Indian English template
+    # Standardized language code to en_US for all templates
     template_data = {
         "name": template_name,
-        "language": {"code": "en_IN"}
+        "language": {"code": "en_US"}
     }
     # --- MODIFICATION END ---
     if components:
