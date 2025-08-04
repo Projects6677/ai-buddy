@@ -352,7 +352,12 @@ def handle_text_message(user_text, sender_number, state):
 
     response_text = ""
 
-    if user_text.lower() in ["hi", "hello", "hey", "start", "menu", "help", "options", "0"]:
+    # --- MODIFICATION START ---
+    # This check is now more flexible for greetings
+    greetings = ["hi", "hello", "hey"]
+    menu_commands = ["start", "menu", "help", "options", "0"]
+    if any(user_text_lower.startswith(greet) for greet in greetings) or user_text_lower in menu_commands:
+    # --- MODIFICATION END ---
         user_sessions.pop(sender_number, None)
         if not user_data:
             response_text = "👋 Hi there! To personalize your experience, what should I call you?"
@@ -490,10 +495,7 @@ def handle_text_message(user_text, sender_number, state):
                 else:
                     response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
-        # --- MODIFICATION START ---
-        # Pass the main scheduler instance to the reminder function
         response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db, scheduler)
-        # --- MODIFICATION END ---
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
@@ -569,7 +571,7 @@ def handle_text_message(user_text, sender_number, state):
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         else:
-            response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
+            response_text = "� I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
         send_message(sender_number, response_text)
@@ -794,3 +796,4 @@ if __name__ == '__main__':
     )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+�
