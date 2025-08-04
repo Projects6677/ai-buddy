@@ -490,7 +490,10 @@ def handle_text_message(user_text, sender_number, state):
                 else:
                     response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
-        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db)
+        # --- MODIFICATION START ---
+        # Pass the main scheduler instance to the reminder function
+        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db, scheduler)
+        # --- MODIFICATION END ---
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
