@@ -9,7 +9,6 @@ python-docx
 werkzeug
 python-dotenv
 pdf2docx
-docx2pdf
 pytesseract
 pdf2image
 pandas
