@@ -5,8 +5,11 @@ import pytz
 from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
+from app import get_user_from_db # Import the database function
 
+# --- MODIFICATION START ---
 # The separate scheduler instance has been REMOVED from this file.
+# --- MODIFICATION END ---
 
 def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
@@ -19,7 +22,13 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
         return "❌ I couldn't understand that. Please try phrasing your reminder differently."
 
     try:
-        tz = pytz.timezone('Asia/Kolkata')
+        # --- MODIFICATION START ---
+        # Fetch user's saved timezone or default to 'Asia/Kolkata'
+        user_data = get_user_from_db(user)
+        user_timezone = user_data.get("timezone", "Asia/Kolkata")
+        tz = pytz.timezone(user_timezone)
+        # --- MODIFICATION END ---
+        
         run_time = date_parser.parse(timestamp_str)
 
         if run_time.tzinfo is None:
@@ -38,7 +47,8 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             }]
         }]
 
-        # This now uses the main scheduler passed in from app.py, fixing the bug
+        # --- MODIFICATION START ---
+        # This now uses the main scheduler passed in from app.py
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
@@ -47,6 +57,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             id=f"reminder_{user}_{int(run_time.timestamp())}",
             replace_existing=True
         )
+        # --- MODIFICATION END ---
 
         base_confirmation = f"✅ Reminder set for '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
         gcal_confirmation = ""
