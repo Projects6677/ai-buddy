@@ -1,12 +1,10 @@
 # reminders.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 import pytz
 from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
-
-# The separate scheduler instance has been REMOVED from this file.
 
 def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
@@ -26,8 +24,13 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             run_time = tz.localize(run_time)
 
         now = datetime.now(tz)
+        
+        # --- FIX: If the parsed time is in the past today, set it for the next day ---
         if run_time < now:
-            return f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
+            if run_time.date() == now.date():
+                run_time += timedelta(days=1)
+            else:
+                return f"❌ The time you provided ({run_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
 
         template_name = "reminder_alert"
         components = [{
@@ -38,7 +41,6 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             }]
         }]
 
-        # This now uses the main scheduler passed in from app.py, fixing the bug
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
