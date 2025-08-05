@@ -48,7 +48,7 @@ from messaging import send_message, send_template_message, send_interactive_menu
 from document_processor import get_text_from_file
 
 
-app = Flask(_name_)
+app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = os.urandom(24)
 
@@ -236,9 +236,11 @@ def handle_document_message(message, sender_number, state):
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
+    # --- MODIFICATION START ---
+    # First, check for specific file-handling states before doing proactive analysis.
     if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
         filename = message.get('document', {}).get('filename', 'attached_file')
-        send_message(sender_number, f"Got it. Attaching {filename} to your email...")
+        send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
         downloaded_path, _ = download_media_from_whatsapp(media_id)
         if downloaded_path:
             if "attachment_paths" not in state:
@@ -246,19 +248,40 @@ def handle_document_message(message, sender_number, state):
             state["attachment_paths"].append(downloaded_path)
             state["state"] = "awaiting_more_attachments"
             user_sessions[sender_number] = state
-            response_text = f"✅ File attached successfully!\n\nType 'done' when you have finished attaching files, or upload another document."
+            response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
             send_message(sender_number, response_text)
         else:
             send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
         return
 
-    send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
     downloaded_path, mime_type = download_media_from_whatsapp(media_id)
-    
     if not downloaded_path:
         send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
         return
 
+    if state == "awaiting_pdf_to_text":
+        extracted_text = get_text_from_file(downloaded_path, mime_type)
+        response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
+        send_message(sender_number, response)
+        user_sessions.pop(sender_number, None)
+        if os.path.exists(downloaded_path): os.remove(downloaded_path)
+        return
+
+    elif state == "awaiting_pdf_to_docx":
+        output_docx_path = downloaded_path + ".docx"
+        cv = Converter(downloaded_path)
+        cv.convert(output_docx_path, start=0, end=None)
+        cv.close()
+        send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+        if os.path.exists(output_docx_path): os.remove(output_docx_path)
+        user_sessions.pop(sender_number, None)
+        if os.path.exists(downloaded_path): os.remove(downloaded_path)
+        return
+    # --- MODIFICATION END ---
+
+    # If no specific state matches, proceed with the proactive analysis
+    send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
+    
     extracted_text = get_text_from_file(downloaded_path, mime_type)
     if not extracted_text:
         send_message(sender_number, "❌ I couldn't find any readable text in that file.")
@@ -306,7 +329,7 @@ def handle_text_message(user_text, sender_number, state):
         
         parts = user_text.split()
         if len(parts) < 3:
-            send_message(sender_number, "❌ Invalid command format.\nUse: .dev <secret_key> <feature_list>")
+            send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
             return
         
         command, key, features = parts[0], parts[1], " ".join(parts[2:])
@@ -326,7 +349,7 @@ def handle_text_message(user_text, sender_number, state):
 
         parts = user_text.split()
         if len(parts) != 2:
-            send_message(sender_number, "❌ Invalid format. Use: .test <passcode>")
+            send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
             return
 
         passcode = parts[1]
@@ -354,7 +377,7 @@ def handle_text_message(user_text, sender_number, state):
             return
         
         count = count_users_in_db()
-        stats_message = f"📊 Bot Statistics\n\nTotal Registered Users: {count}"
+        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
 
@@ -380,7 +403,7 @@ def handle_text_message(user_text, sender_number, state):
                 send_message(sender_number, "🤖 Thinking...")
                 response = get_contextual_ai_response(doc_text, user_text)
                 send_message(sender_number, response)
-                send_message(sender_number, "_You can ask another question, or type menu to exit._")
+                send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
             return
     
     user_text_lower = user_text.lower()
@@ -425,7 +448,7 @@ def handle_text_message(user_text, sender_number, state):
         new_user_data = {"name": name, "expenses": [], "is_google_connected": False}
         create_or_update_user_in_db(sender_number, new_user_data)
         user_sessions.pop(sender_number, None)
-        send_message(sender_number, f"✅ Got it! I’ll remember you as {name}.")
+        send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
 
         if GOOGLE_REDIRECT_URI:
@@ -453,7 +476,7 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipients": valid_recipients}
             response_text = f"✅ Got recipient(s). Now, what should the subject of the email be?"
         else:
-            response_text = "⚠ I couldn't find any valid email addresses. Please try again."
+            response_text = "⚠️ I couldn't find any valid email addresses. Please try again."
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_subject":
         subject = user_text
         send_message(sender_number, "👍 Great subject. Let me think of some follow-up questions...")
@@ -479,7 +502,7 @@ def handle_text_message(user_text, sender_number, state):
                 user_sessions.pop(sender_number, None)
             else:
                 user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
-                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type 'attach' to add a file, or type 'send' to approve._"
+                response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
         prompt = user_text
         send_message(sender_number, "🤖 Writing your email with AI, please wait...")
@@ -489,15 +512,15 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions.pop(sender_number, None)
         else:
             user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
-            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type 'attach' to add a file, or type 'send' to approve._"
+            response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
     elif isinstance(state, dict) and state.get("state") == "awaiting_more_attachments":
         if user_text_lower == "done":
             state["state"] = "awaiting_email_edit"
             user_sessions[sender_number] = state
             num_files = len(state.get("attachment_paths", []))
-            response_text = f"✅ Okay, {num_files} file(s) are attached. You can now review the draft, ask for more changes, or type 'send'."
+            response_text = f"✅ Okay, {num_files} file(s) are attached. You can now review the draft, ask for more changes, or type *'send'*."
         else:
-            response_text = "Please upload another file, or type 'done' to finish."
+            response_text = "Please upload another file, or type *'done'* to finish."
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email from your account...")
@@ -532,7 +555,7 @@ def handle_text_message(user_text, sender_number, state):
                         if creds:
                             attachment_paths = state.get("attachment_paths", [])
                             scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[creds, state["recipients"], state["subject"], state["body"], attachment_paths])
-                            response_text = f"👍 Scheduled! The email will be sent from your account on {run_time.strftime('%A, %b %d at %I:%M %p')}."
+                            response_text = f"👍 Scheduled! The email will be sent from your account on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
                         else:
                             response_text = "❌ Could not schedule email. Your Google account is not connected."
                         user_sessions.pop(sender_number, None)
@@ -540,11 +563,11 @@ def handle_text_message(user_text, sender_number, state):
                     print(f"Error parsing timestamp from Grok: {e}")
                     response_text = "I understood you want to schedule the email, but had trouble with the exact time."
             else:
-                send_message(sender_number, "✏ Applying your changes, please wait...")
+                send_message(sender_number, "✏️ Applying your changes, please wait...")
                 new_body = edit_email_body(state["body"], user_text)
                 if new_body:
                     user_sessions[sender_number]["body"] = new_body
-                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type 'attach' for a file, or type 'send'._"
+                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
@@ -597,34 +620,34 @@ def handle_text_message(user_text, sender_number, state):
     else: # Main Menu selections
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
-            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:\n- _Remind me to call John tomorrow at 4pm"
+            response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_"
         elif user_text == "2":
             user_sessions[sender_number] = "awaiting_grammar"
-            response_text = "✍ Send me the sentence or paragraph you want me to correct."
+            response_text = "✍️ Send me the sentence or paragraph you want me to correct."
         elif user_text == "3":
             user_sessions[sender_number] = "awaiting_ai"
-            response_text = "🤖 You can now chat with me! Ask me anything.\n\n_Type menu to exit this mode._"
+            response_text = "🤖 You can now chat with me! Ask me anything.\n\n_Type `menu` to exit this mode._"
         elif user_text == "4":
             user_sessions[sender_number] = "awaiting_conversion_choice"
             response_text = get_conversion_menu()
         elif user_text == "5":
             user_sessions[sender_number] = "awaiting_translation"
-            response_text = "🌍 AI Translator Active!\n\nHow can I help you translate today?"
+            response_text = "🌍 *AI Translator Active!*\n\nHow can I help you translate today?"
         elif user_text == "6":
             user_sessions[sender_number] = "awaiting_weather"
-            response_text = "🏙 Enter a city or location to get the current weather."
+            response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "💱 Currency Converter\n\nAsk me to convert currencies naturally!"
+            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
-                response_text = "📧 AI Email Assistant\n\nWho are the recipients? (Emails separated by commas)"
+                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
-                response_text = "⚠ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
+                response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         else:
-            response_text = "🤔 I didn't understand that. Please type menu to see the options."
+            response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
         send_message(sender_number, response_text)
@@ -635,7 +658,7 @@ def send_welcome_message(to, name):
     send_interactive_menu(to, name)
 
 def get_conversion_menu():
-    return "📁 File/Text Conversion Menu\n\n1️⃣ PDF ➡ Text\n2️⃣ Text ➡ PDF\n3️⃣ PDF ➡ Word\n4️⃣ Text ➡ Word\n\nReply with a number (1-4)."
+    return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
 
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
@@ -658,10 +681,10 @@ def get_weather(city):
         response = requests.get(f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric")
         response.raise_for_status()
         data = response.json()
-        emoji = {"01":"☀","02":"⛅","03":"☁","04":"☁","09":"🌧","10":"🌦","11":"⛈","13":"❄","50":"🌫"}.get(data["weather"][0]["icon"][:2], "🌡")
-        return f"{data['name']} Weather Report {emoji}\n•----------------------------------•\n\n*{data['weather'][0]['description'].title()}\n\n🌡 *Temperature: {data['main']['temp']}°C\n   Feels like: {data['main']['feels_like']}°C\n\n💧 Humidity: {data['main']['humidity']}%"
+        emoji = {"01":"☀️","02":"⛅️","03":"☁️","04":"☁️","09":"🌧️","10":"🌦️","11":"⛈️","13":"❄️","50":"🌫️"}.get(data["weather"][0]["icon"][:2], "🌡️")
+        return f"*{data['name']} Weather Report* {emoji}\n•----------------------------------•\n\n*{data['weather'][0]['description'].title()}*\n\n🌡️ *Temperature:* {data['main']['temp']}°C\n   _Feels like: {data['main']['feels_like']}°C_\n\n💧 *Humidity:* {data['main']['humidity']}%"
     except requests.exceptions.HTTPError as e:
-        return f"⚠ City not found: '{city.title()}'." if e.response.status_code == 404 else "❌ Oops! A weather service error occurred."
+        return f"⚠️ City not found: '{city.title()}'." if e.response.status_code == 404 else "❌ Oops! A weather service error occurred."
     except Exception as e:
         print(f"Weather function error: {e}"); return "❌ An unexpected error occurred."
 
@@ -701,9 +724,9 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     
     create_or_update_user_in_db(sender_number, user_data)
     
-    log_message = f"✅ Logged: ₹{amount:.2f} for {item.title()}"
-    if place and place != "N/A": log_message += f" at {place.title()}"
-    if expense_time.date() != datetime.now(tz).date(): log_message += f" on {expense_time.strftime('%B %d')}"
+    log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
+    if place and place != "N/A": log_message += f" at *{place.title()}*"
+    if expense_time.date() != datetime.now(tz).date(): log_message += f" on *{expense_time.strftime('%B %d')}*"
     return log_message
 
 def export_expenses_to_excel(sender_number, user_data):
@@ -831,7 +854,7 @@ def send_update_notification_to_all_users(feature_list):
 
 
 # --- RUN APP ---
-if _name_ == '_main_':
+if __name__ == '__main__':
     scheduler.add_job(
         func=send_daily_briefing,
         trigger='cron',
