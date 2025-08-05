@@ -44,7 +44,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
-from messaging import send_message, send_template_message, send_interactive_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 
 
@@ -213,10 +213,14 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "list_reply":
-            list_reply = message["interactive"]["list_reply"]
-            selection_id = list_reply["id"]
-            handle_text_message(selection_id, sender_number, state)
+        if msg_type == "interactive":
+            interactive_data = message["interactive"]
+            if interactive_data["type"] == "list_reply":
+                selection_id = interactive_data["list_reply"]["id"]
+                handle_text_message(selection_id, sender_number, state)
+            elif interactive_data["type"] == "button_reply":
+                selection_id = interactive_data["button_reply"]["id"]
+                handle_text_message(selection_id, sender_number, state)
         elif msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
@@ -427,12 +431,9 @@ def handle_text_message(user_text, sender_number, state):
 
     response_text = ""
 
-    # --- MODIFICATION START ---
-    # This logic is now placed AFTER the state checks to prioritize ongoing tasks.
     greetings = ["hi", "hello", "hey"]
     menu_commands = ["start", "menu", "help", "options", "0"]
     is_greeting_or_menu = any(user_text_lower.startswith(greet) for greet in greetings) or user_text_lower in menu_commands
-    # --- MODIFICATION END ---
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
@@ -593,24 +594,7 @@ def handle_text_message(user_text, sender_number, state):
         send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
         if os.path.exists(docx_path): os.remove(docx_path)
         user_sessions.pop(sender_number, None)
-    elif state == "awaiting_conversion_choice":
-        if user_text == "1":
-            user_sessions[sender_number] = "awaiting_pdf_to_text"
-            response_text = "📥 Please upload the PDF you want to convert to text."
-        elif user_text == "2":
-            user_sessions[sender_number] = "awaiting_text_to_pdf"
-            response_text = "📝 Please send the text you want to convert into a PDF."
-        elif user_text == "3":
-            user_sessions[sender_number] = "awaiting_pdf_to_docx"
-            response_text = "📥 Please upload the PDF to convert into Word."
-        elif user_text == "4":
-            user_sessions[sender_number] = "awaiting_text_to_word"
-            response_text = "📝 Please send the text you want to convert into a Word document."
-        else:
-            response_text = "❓ Please send a number from 1 to 4."
     
-    # --- MODIFICATION START ---
-    # The greeting check is now the last thing to run if no other state was matched.
     elif is_greeting_or_menu:
         user_sessions.pop(sender_number, None)
         if not user_data:
@@ -618,9 +602,8 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_name"
         else:
             send_welcome_message(sender_number, user_data.get("name"))
-    # --- MODIFICATION END ---
     
-    else: # Main Menu selections
+    else: # Main Menu selections or button replies
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
             response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_"
@@ -631,8 +614,7 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_ai"
             response_text = "🤖 You can now chat with me! Ask me anything.\n\n_Type `menu` to exit this mode._"
         elif user_text == "4":
-            user_sessions[sender_number] = "awaiting_conversion_choice"
-            response_text = get_conversion_menu()
+            send_conversion_menu(sender_number)
         elif user_text == "5":
             user_sessions[sender_number] = "awaiting_translation"
             response_text = "🌍 *AI Translator Active!*\n\nHow can I help you translate today?"
@@ -649,7 +631,22 @@ def handle_text_message(user_text, sender_number, state):
                 response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
-        else:
+        
+        # Handle conversion button replies
+        elif user_text == "conv_pdf_to_text":
+            user_sessions[sender_number] = "awaiting_pdf_to_text"
+            response_text = "📥 Please upload the PDF you want to convert to text."
+        elif user_text == "conv_text_to_pdf":
+            user_sessions[sender_number] = "awaiting_text_to_pdf"
+            response_text = "📝 Please send the text you want to convert into a PDF."
+        elif user_text == "conv_pdf_to_word":
+            user_sessions[sender_number] = "awaiting_pdf_to_docx"
+            response_text = "📥 Please upload the PDF to convert into Word."
+        elif user_text == "conv_text_to_word":
+            user_sessions[sender_number] = "awaiting_text_to_word"
+            response_text = "📝 Please send the text you want to convert into a Word document."
+            
+        elif not state:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
@@ -659,9 +656,6 @@ def handle_text_message(user_text, sender_number, state):
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
-
-def get_conversion_menu():
-    return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
 
 def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
