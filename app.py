@@ -1,5 +1,4 @@
 # app.py
-
 from flask import Flask, request, redirect, session, url_for
 import requests
 import os
@@ -10,7 +9,7 @@ import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from pdf2docx import Converter
-import fitz  # PyMuPDF
+import fitz  # PyMuPDF
 import pytz
 from docx import Document
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -26,24 +25,26 @@ from google.auth.transport.requests import Request
 
 from currency import convert_currency
 from grok_ai import (
-    ai_reply,
-    correct_grammar_with_grok,
-    parse_expense_with_grok,
-    parse_reminder_with_grok,
-    parse_currency_with_grok,
-    is_expense_intent,
-    analyze_email_subject,
-    edit_email_body,
-    write_email_body_with_grok,
-    translate_with_grok,
-    analyze_document_context, 
-    get_contextual_ai_response,
-    is_document_followup_question
+    ai_reply,
+    correct_grammar_with_grok,
+    parse_expense_with_grok,
+    parse_reminder_with_grok,
+    parse_currency_with_grok,
+    is_expense_intent,
+    analyze_email_subject,
+    edit_email_body,
+    write_email_body_with_grok,
+    translate_with_grok,
+    analyze_document_context, 
+    get_contextual_ai_response
 )
 from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
+# --- MODIFICATION START ---
+# Import schedule_reminder, but it no longer imports from app
 from reminders import schedule_reminder
+# --- MODIFICATION END ---
 from messaging import send_message, send_template_message, send_interactive_menu
 from document_processor import get_text_from_file
 
@@ -290,7 +291,7 @@ def handle_document_message(message, sender_number, state):
         response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
     elif doc_type == "q_and_a":
         response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
-    else:
+    else: # generic_document
         response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
 
     send_message(sender_number, response)
@@ -358,35 +359,10 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, stats_message)
         return
 
-    if isinstance(state, dict) and state.get("state") == "awaiting_document_question":
-        if not is_document_followup_question(user_text):
-            user_sessions.pop(sender_number, None)
-            state = None
-        else:
-            doc_type = state.get("doc_type")
-            doc_text = state.get("document_text")
-            doc_data = state.get("data", {})
-
-            if doc_type == "meeting_invite" and user_text.lower() in ["yes", "ok", "sure", "yep", "schedule it"]:
-                task = doc_data.get("task")
-                timestamp = doc_data.get("timestamp")
-                if task and timestamp:
-                    response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
-                    send_message(sender_number, response)
-                else:
-                    send_message(sender_number, "I seem to have lost the details. Could you try uploading the invite again?")
-                user_sessions.pop(sender_number, None)
-            else:
-                send_message(sender_number, "🤖 Thinking...")
-                response = get_contextual_ai_response(doc_text, user_text)
-                send_message(sender_number, response)
-                send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-            return
-    
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
-    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']):
+    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
         send_message(sender_number, "📊 Generating your expense report...")
         file_path = export_expenses_to_excel(sender_number, user_data)
         if file_path:
@@ -396,7 +372,7 @@ def handle_text_message(user_text, sender_number, state):
             send_message(sender_number, "You have no expenses to export yet.")
         return
 
-    if is_expense_intent(user_text):
+    if is_expense_intent(user_text) and not (isinstance(state, dict) and state.get("state") == "awaiting_document_question"):
         send_message(sender_number, "Analyzing expense...")
         expenses = parse_expense_with_grok(user_text)
         if expenses:
@@ -446,6 +422,26 @@ def handle_text_message(user_text, sender_number, state):
         send_welcome_message(sender_number, name)
         return
     
+    elif isinstance(state, dict) and state.get("state") == "awaiting_document_question":
+        doc_type = state.get("doc_type")
+        doc_text = state.get("document_text")
+        doc_data = state.get("data", {})
+
+        if doc_type == "meeting_invite" and user_text_lower in ["yes", "ok", "sure", "yep", "schedule it"]:
+            task = doc_data.get("task")
+            timestamp = doc_data.get("timestamp")
+            if task and timestamp:
+                response_text = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler, get_user_from_db)
+            else:
+                response_text = "I seem to have lost the details. Could you try uploading the invite again?"
+            user_sessions.pop(sender_number, None)
+        else:
+            send_message(sender_number, "🤖 Thinking...")
+            response_text = get_contextual_ai_response(doc_text, user_text)
+            send_message(sender_number, response_text)
+            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+            return
+
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -520,7 +516,9 @@ def handle_text_message(user_text, sender_number, state):
             _, timestamp_str = parse_reminder_with_grok(user_text)
             if timestamp_str:
                 try:
-                    tz = pytz.timezone('Asia/Kolkata')
+                    user_data = get_user_from_db(sender_number)
+                    user_timezone = user_data.get("timezone", "Asia/Kolkata")
+                    tz = pytz.timezone(user_timezone)
                     now = datetime.now(tz)
                     run_time = date_parser.parse(timestamp_str)
                     if run_time.tzinfo is None:
@@ -544,11 +542,14 @@ def handle_text_message(user_text, sender_number, state):
                 new_body = edit_email_body(state["body"], user_text)
                 if new_body:
                     user_sessions[sender_number]["body"] = new_body
-                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._"
+                    response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change."
     elif state == "awaiting_reminder":
-        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db, scheduler)
+        # --- MODIFICATION START ---
+        # Pass the database function as an argument
+        response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db, scheduler, get_user_from_db)
+        # --- MODIFICATION END ---
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
@@ -557,6 +558,7 @@ def handle_text_message(user_text, sender_number, state):
         response_text = ai_reply(user_text)
     elif state == "awaiting_translation":
         response_text = translate_with_grok(user_text)
+        user_sessions.pop(sender_number, None)
     elif state == "awaiting_weather":
         response_text = get_weather(user_text)
         user_sessions.pop(sender_number, None)
@@ -594,6 +596,14 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "📝 Please send the text you want to convert into a Word document."
         else:
             response_text = "❓ Please send a number from 1 to 4."
+    elif state == "awaiting_timezone_input":
+        try:
+            tz = pytz.timezone(user_text.strip())
+            create_or_update_user_in_db(sender_number, {"timezone": user_text.strip()})
+            response_text = f"✅ Timezone set to *{user_text.strip()}*."
+        except pytz.UnknownTimeZoneError:
+            response_text = "❌ Invalid timezone. Please try again with a valid timezone (e.g., 'America/New_York' or 'Europe/London')."
+        user_sessions.pop(sender_number, None)
     else: # Main Menu selections
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
@@ -623,223 +633,11 @@ def handle_text_message(user_text, sender_number, state):
                 response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
+        elif user_text == "9":
+            user_sessions[sender_number] = "awaiting_timezone_input"
+            response_text = "🌍 What is your timezone? Please use a valid name like 'America/New_York' or 'Europe/London'."
         else:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
         send_message(sender_number, response_text)
-
-
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
-def send_welcome_message(to, name):
-    send_interactive_menu(to, name)
-
-def get_conversion_menu():
-    return "📁 *File/Text Conversion Menu*\n\n1️⃣ PDF ➡️ Text\n2️⃣ Text ➡️ PDF\n3️⃣ PDF ➡️ Word\n4️⃣ Text ➡️ Word\n\nReply with a number (1-4)."
-
-def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    with open(file_path, "rb") as f:
-        files = {'file': (os.path.basename(file_path), f, mime_type)}
-        data = {"messaging_product": "whatsapp"}
-        upload_response = requests.post(url, headers=headers, files=files, data=data)
-    if upload_response.status_code != 200:
-        print(f"Error uploading file: {upload_response.text}"); return
-    media_id = upload_response.json().get("id")
-    if not media_id: return
-    message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
-    requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
-
-def get_weather(city):
-    if not OPENWEATHER_API_KEY: return "❌ The OpenWeatherMap API key is not configured."
-    try:
-        response = requests.get(f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric")
-        response.raise_for_status()
-        data = response.json()
-        emoji = {"01":"☀️","02":"⛅️","03":"☁️","04":"☁️","09":"🌧️","10":"🌦️","11":"⛈️","13":"❄️","50":"🌫️"}.get(data["weather"][0]["icon"][:2], "🌡️")
-        return f"*{data['name']} Weather Report* {emoji}\n•----------------------------------•\n\n*{data['weather'][0]['description'].title()}*\n\n🌡️ *Temperature:* {data['main']['temp']}°C\n   _Feels like: {data['main']['feels_like']}°C_\n\n💧 *Humidity:* {data['main']['humidity']}%"
-    except requests.exceptions.HTTPError as e:
-        return f"⚠️ City not found: '{city.title()}'." if e.response.status_code == 404 else "❌ Oops! A weather service error occurred."
-    except Exception as e:
-        print(f"Weather function error: {e}"); return "❌ An unexpected error occurred."
-
-def convert_text_to_pdf(text):
-    pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, text.encode('latin-1', 'replace').decode('latin-1'))
-    filename = secure_filename(f"converted_{int(time.time())}.pdf")
-    file_path = os.path.join("uploads", filename)
-    pdf.output(file_path); return file_path
-
-def convert_text_to_word(text):
-    doc = Document(); doc.add_paragraph(text)
-    filename = secure_filename(f"converted_{int(time.time())}.docx")
-    file_path = os.path.join("uploads", filename)
-    doc.save(file_path); return file_path
-
-def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
-    user_data = get_user_from_db(sender_number)
-    if not user_data:
-        user_data = {"_id": sender_number, "name": "User", "expenses": [], "is_google_connected": False}
-    
-    try:
-        expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
-    except (date_parser.ParserError, pytz.exceptions.AmbiguousTimeError):
-        expense_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-    
-    tz = pytz.timezone('Asia/Kolkata')
-    if expense_time.tzinfo is None:
-        expense_time = tz.localize(expense_time)
-    
-    new_expense = {"cost": amount, "item": item, "place": place or "N/A", "timestamp": expense_time.isoformat()}
-    
-    if "expenses" not in user_data:
-        user_data["expenses"] = []
-    user_data["expenses"].append(new_expense)
-    
-    create_or_update_user_in_db(sender_number, user_data)
-    
-    log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
-    if place and place != "N/A": log_message += f" at *{place.title()}*"
-    if expense_time.date() != datetime.now(tz).date(): log_message += f" on *{expense_time.strftime('%B %d')}*"
-    return log_message
-
-def export_expenses_to_excel(sender_number, user_data):
-    user_expenses = user_data.get("expenses", []) if user_data else []
-    if not user_expenses: return None
-    df = pd.DataFrame(user_expenses)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df['Date'] = df['timestamp'].dt.strftime('%Y-%m-%d')
-    df['Time'] = df['timestamp'].dt.strftime('%I:%M %p')
-    df = df[['Date', 'Time', 'item', 'place', 'cost']]
-    df.rename(columns={'item': 'Item', 'place': 'Place', 'cost': 'Cost (₹)'}, inplace=True)
-    file_path = os.path.join("uploads", f"expenses_{sender_number}.xlsx")
-    df.to_excel(file_path, index=False, engine='openpyxl')
-    return file_path
-
-def send_daily_briefing():
-    print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
-    all_users = list(get_all_users_from_db())
-    if not all_users: 
-        print("No users found. Skipping job.")
-        return
-        
-    headline = get_tech_headline()
-    weather = get_briefing_weather("Vijayawada")
-    tech_tip = get_tech_tip()
-    quote = get_daily_quote()
-
-    print(f"Found {len(all_users)} user(s) to send briefing to.")
-    for user in all_users:
-        user_id = user["_id"]
-        user_name = user.get("name", "there")
-        
-        email_summary = "Not connected."
-        if user.get("is_google_connected"):
-            creds = get_credentials_from_db(user_id)
-            if creds:
-                summary = get_email_summary(creds)
-                if summary:
-                    email_summary = summary
-                else:
-                    email_summary = "No important updates found."
-        
-        template_name = "daily_briefing"
-        components = [
-            {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
-            {"type": "body", "parameters": [
-                {"type": "text", "text": quote},
-                {"type": "text", "text": email_summary},
-                {"type": "text", "text": headline},
-                {"type": "text", "text": weather},
-                {"type": "text", "text": tech_tip}
-            ]}
-        ]
-        
-        send_template_message(user_id, template_name, components)
-        time.sleep(1)
-    print("--- Daily Briefing Job Finished ---")
-
-def send_test_briefing(developer_number):
-    """Sends a test daily briefing only to the developer."""
-    print(f"--- Running Test Briefing for {developer_number} ---")
-    user = get_user_from_db(developer_number)
-    if not user:
-        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
-        return
-        
-    headline = get_tech_headline()
-    weather = get_briefing_weather("Vijayawada")
-    tech_tip = get_tech_tip()
-    quote = get_daily_quote()
-    
-    user_name = user.get("name", "Developer")
-    
-    email_summary = "Not connected."
-    if user.get("is_google_connected"):
-        creds = get_credentials_from_db(developer_number)
-        if creds:
-            summary = get_email_summary(creds)
-            if summary:
-                email_summary = summary
-            else:
-                email_summary = "No important updates found."
-
-    template_name = "daily_briefing"
-    components = [
-        {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
-        {"type": "body", "parameters": [
-            {"type": "text", "text": quote},
-            {"type": "text", "text": email_summary},
-            {"type": "text", "text": headline},
-            {"type": "text", "text": weather},
-            {"type": "text", "text": tech_tip}
-        ]}
-    ]
-    
-    send_template_message(developer_number, template_name, components)
-    print("--- Test Briefing Finished ---")
-
-
-def send_update_notification_to_all_users(feature_list):
-    if not ADMIN_SECRET_KEY:
-        print("ADMIN_SECRET_KEY is not set. Cannot send notifications.")
-        return
-    print("--- Sending update notifications to all users ---")
-    all_users = list(get_all_users_from_db())
-    if not all_users:
-        print("No users found, skipping notifications.")
-        return
-
-    template_name = "bot_update_notification"
-    
-    components = [{
-        "type": "body",
-        "parameters": [{
-            "type": "text",
-            "text": feature_list
-        }]
-    }]
-
-    print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
-    for user in all_users:
-        send_template_message(user["_id"], template_name, components)
-        time.sleep(1)
-    print("--- Finished sending update notifications ---")
-
-
-# --- RUN APP ---
-if __name__ == '__main__':
-    scheduler.add_job(
-        func=send_daily_briefing,
-        trigger='cron',
-        hour=8,
-        minute=0,
-        timezone='Asia/Kolkata',
-        id='daily_briefing_job',
-        replace_existing=True
-    )
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
