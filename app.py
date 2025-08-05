@@ -236,8 +236,6 @@ def handle_document_message(message, sender_number, state):
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
-    # --- MODIFICATION START ---
-    # First, check for specific file-handling states before doing proactive analysis.
     if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
         filename = message.get('document', {}).get('filename', 'attached_file')
         send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
@@ -277,9 +275,7 @@ def handle_document_message(message, sender_number, state):
         user_sessions.pop(sender_number, None)
         if os.path.exists(downloaded_path): os.remove(downloaded_path)
         return
-    # --- MODIFICATION END ---
 
-    # If no specific state matches, proceed with the proactive analysis
     send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
     
     extracted_text = get_text_from_file(downloaded_path, mime_type)
