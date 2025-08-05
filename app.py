@@ -427,17 +427,12 @@ def handle_text_message(user_text, sender_number, state):
 
     response_text = ""
 
+    # --- MODIFICATION START ---
+    # This logic is now placed AFTER the state checks to prioritize ongoing tasks.
     greetings = ["hi", "hello", "hey"]
     menu_commands = ["start", "menu", "help", "options", "0"]
-    if any(user_text_lower.startswith(greet) for greet in greetings) or user_text_lower in menu_commands:
-        user_sessions.pop(sender_number, None)
-        if not user_data:
-            response_text = "👋 Hi there! To personalize your experience, what should I call you?"
-            user_sessions[sender_number] = "awaiting_name"
-        else:
-            send_welcome_message(sender_number, user_data.get("name"))
-        if response_text: send_message(sender_number, response_text)
-        return
+    is_greeting_or_menu = any(user_text_lower.startswith(greet) for greet in greetings) or user_text_lower in menu_commands
+    # --- MODIFICATION END ---
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
@@ -613,6 +608,18 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "📝 Please send the text you want to convert into a Word document."
         else:
             response_text = "❓ Please send a number from 1 to 4."
+    
+    # --- MODIFICATION START ---
+    # The greeting check is now the last thing to run if no other state was matched.
+    elif is_greeting_or_menu:
+        user_sessions.pop(sender_number, None)
+        if not user_data:
+            response_text = "👋 Hi there! To personalize your experience, what should I call you?"
+            user_sessions[sender_number] = "awaiting_name"
+        else:
+            send_welcome_message(sender_number, user_data.get("name"))
+    # --- MODIFICATION END ---
+    
     else: # Main Menu selections
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
