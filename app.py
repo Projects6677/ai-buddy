@@ -36,7 +36,7 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok,
     translate_with_grok,
-    analyze_document_context, 
+    analyze_document_context,
     get_contextual_ai_response,
     is_document_followup_question
 )
@@ -46,6 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
+from weather import get_weather # <-- FIX: Imported from weather.py
 
 
 app = Flask(__name__)
@@ -121,7 +122,7 @@ def get_credentials_from_db(sender_number):
 
     if creds and creds.valid:
         return creds
-    
+
     return None
 
 # === ROUTES ===
@@ -144,9 +145,9 @@ def google_auth_callback():
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
-    
+
     save_credentials_to_db(sender_number, credentials)
-    
+
     send_message(sender_number, "✅ Your Google account has been successfully connected!")
     user_sessions.pop(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
@@ -281,7 +282,7 @@ def handle_document_message(message, sender_number, state):
         return
 
     send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-    
+
     extracted_text = get_text_from_file(downloaded_path, mime_type)
     if not extracted_text:
         send_message(sender_number, "❌ I couldn't find any readable text in that file.")
@@ -293,7 +294,7 @@ def handle_document_message(message, sender_number, state):
         send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
         if os.path.exists(downloaded_path): os.remove(downloaded_path)
         return
-        
+
     doc_type = analysis.get("doc_type")
     data = analysis.get("data", {})
 
@@ -326,12 +327,12 @@ def handle_text_message(user_text, sender_number, state):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
+
         parts = user_text.split()
         if len(parts) < 3:
             send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
             return
-        
+
         command, key, features = parts[0], parts[1], " ".join(parts[2:])
 
         if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
@@ -360,12 +361,12 @@ def handle_text_message(user_text, sender_number, state):
         send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
         send_test_briefing(sender_number)
         return
-        
+
     elif user_text.lower() == ".nuke":
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
+
         result = delete_all_users_from_db()
         count = result.deleted_count
         send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
@@ -375,7 +376,7 @@ def handle_text_message(user_text, sender_number, state):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
+
         count = count_users_in_db()
         stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
@@ -405,7 +406,7 @@ def handle_text_message(user_text, sender_number, state):
                 send_message(sender_number, response)
                 send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
             return
-    
+
     user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
@@ -448,7 +449,7 @@ def handle_text_message(user_text, sender_number, state):
                 parsed_uri = urlparse(request.url_root)
                 base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
                 auth_link = f"{base_url}/google-auth?state={sender_number}"
-                
+
                 auth_message = (
                     "To get the most out of me (like email summaries and calendar events), connect your Google Account. "
                     f"Click here to connect: {auth_link}"
@@ -460,7 +461,7 @@ def handle_text_message(user_text, sender_number, state):
 
         send_welcome_message(sender_number, name)
         return
-    
+
     elif state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -516,7 +517,7 @@ def handle_text_message(user_text, sender_number, state):
     elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email from your account...")
-            
+
             creds = get_credentials_from_db(sender_number)
             if creds:
                 attachment_paths = state.get("attachment_paths", [])
@@ -526,7 +527,7 @@ def handle_text_message(user_text, sender_number, state):
                 user_sessions.pop(sender_number, None)
             else:
                 response_text = "❌ Could not send email. Your Google account is not connected properly. Please try re-connecting."
-            
+
         elif user_text_lower == "attach":
             state["state"] = "awaiting_email_attachment"
             user_sessions[sender_number] = state
@@ -594,7 +595,7 @@ def handle_text_message(user_text, sender_number, state):
         send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
         if os.path.exists(docx_path): os.remove(docx_path)
         user_sessions.pop(sender_number, None)
-    
+
     elif is_greeting_or_menu:
         user_sessions.pop(sender_number, None)
         if not user_data:
@@ -602,7 +603,7 @@ def handle_text_message(user_text, sender_number, state):
             user_sessions[sender_number] = "awaiting_name"
         else:
             send_welcome_message(sender_number, user_data.get("name"))
-    
+
     else: # Main Menu selections or button replies
         if user_text == "1":
             user_sessions[sender_number] = "awaiting_reminder"
@@ -631,7 +632,7 @@ def handle_text_message(user_text, sender_number, state):
                 response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
-        
+
         # Handle conversion button replies
         elif user_text == "conv_pdf_to_text":
             user_sessions[sender_number] = "awaiting_pdf_to_text"
@@ -645,7 +646,7 @@ def handle_text_message(user_text, sender_number, state):
         elif user_text == "conv_text_to_word":
             user_sessions[sender_number] = "awaiting_text_to_word"
             response_text = "📝 Please send the text you want to convert into a Word document."
-            
+
         elif not state:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
@@ -703,24 +704,24 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     user_data = get_user_from_db(sender_number)
     if not user_data:
         user_data = {"_id": sender_number, "name": "User", "expenses": [], "is_google_connected": False}
-    
+
     try:
         expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
     except (date_parser.ParserError, pytz.exceptions.AmbiguousTimeError):
         expense_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-    
+
     tz = pytz.timezone('Asia/Kolkata')
     if expense_time.tzinfo is None:
         expense_time = tz.localize(expense_time)
-    
+
     new_expense = {"cost": amount, "item": item, "place": place or "N/A", "timestamp": expense_time.isoformat()}
-    
+
     if "expenses" not in user_data:
         user_data["expenses"] = []
     user_data["expenses"].append(new_expense)
-    
+
     create_or_update_user_in_db(sender_number, user_data)
-    
+
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A": log_message += f" at *{place.title()}*"
     if expense_time.date() != datetime.now(tz).date(): log_message += f" on *{expense_time.strftime('%B %d')}*"
@@ -742,10 +743,10 @@ def export_expenses_to_excel(sender_number, user_data):
 def send_daily_briefing():
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
-    if not all_users: 
+    if not all_users:
         print("No users found. Skipping job.")
         return
-        
+
     headline = get_tech_headline()
     weather = get_briefing_weather("Vijayawada")
     tech_tip = get_tech_tip()
@@ -755,7 +756,7 @@ def send_daily_briefing():
     for user in all_users:
         user_id = user["_id"]
         user_name = user.get("name", "there")
-        
+
         email_summary = "Not connected."
         if user.get("is_google_connected"):
             creds = get_credentials_from_db(user_id)
@@ -765,7 +766,7 @@ def send_daily_briefing():
                     email_summary = summary
                 else:
                     email_summary = "No important updates found."
-        
+
         template_name = "daily_briefing"
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
@@ -777,11 +778,12 @@ def send_daily_briefing():
                 {"type": "text", "text": tech_tip}
             ]}
         ]
-        
+
         send_template_message(user_id, template_name, components)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
+# --- FIX: Added this function to resolve the undefined function error ---
 def send_test_briefing(developer_number):
     """Sends a test daily briefing only to the developer."""
     print(f"--- Running Test Briefing for {developer_number} ---")
@@ -789,14 +791,14 @@ def send_test_briefing(developer_number):
     if not user:
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
-        
+
     headline = get_tech_headline()
     weather = get_briefing_weather("Vijayawada")
     tech_tip = get_tech_tip()
     quote = get_daily_quote()
-    
+
     user_name = user.get("name", "Developer")
-    
+
     email_summary = "Not connected."
     if user.get("is_google_connected"):
         creds = get_credentials_from_db(developer_number)
@@ -818,7 +820,7 @@ def send_test_briefing(developer_number):
             {"type": "text", "text": tech_tip}
         ]}
     ]
-    
+
     send_template_message(developer_number, template_name, components)
     print("--- Test Briefing Finished ---")
 
@@ -834,7 +836,7 @@ def send_update_notification_to_all_users(feature_list):
         return
 
     template_name = "bot_update_notification"
-    
+
     components = [{
         "type": "body",
         "parameters": [{
