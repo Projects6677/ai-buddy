@@ -33,17 +33,18 @@ def create_google_calendar_event(credentials, task, run_time):
         end_time = run_time + timedelta(minutes=30)
 
         # --- MODIFICATION START ---
-        # The timezone is now taken from the `run_time` object passed in.
+        # This is the most explicit and robust method. We provide a timezone-naive
+        # datetime string and a separate, explicit timezone identifier.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
             'start': {
-                'dateTime': run_time.isoformat(), # Use .isoformat() to include timezone
-                'timeZone': str(run_time.tzinfo),
+                'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'timeZone': 'Asia/Kolkata',
             },
             'end': {
-                'dateTime': end_time.isoformat(),
-                'timeZone': str(end_time.tzinfo),
+                'dateTime': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'timeZone': 'Asia/Kolkata',
             },
             'reminders': {
                 'useDefault': True,
@@ -54,7 +55,7 @@ def create_google_calendar_event(credentials, task, run_time):
         created_event = service.events().insert(calendarId='primary', body=event).execute()
         
         event_link = created_event.get('htmlLink')
-        confirmation_message = f"🗓️ Also added to your Google Calendar!"
+        confirmation_message = f"🗓 Also added to your Google Calendar!"
         
         return confirmation_message, event_link
 
