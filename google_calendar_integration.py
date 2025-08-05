@@ -44,7 +44,7 @@ def create_google_calendar_event(credentials, task, run_time):
 
         event = {
             'summary': task,
-            'description': 'Reminder set via AI Buddy.',
+            'description': f"Reminder set for {run_time.strftime('%I:%M %p')} via AI Buddy.",
             'start': {
                 'dateTime': run_time.strftime('%Y-%m-%dT%H:%M:%S'),
                 'timeZone': 'Asia/Kolkata',
