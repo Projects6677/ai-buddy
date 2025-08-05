@@ -27,10 +27,10 @@ def extract_text_from_docx(file_path):
 def extract_text_from_image(file_path):
     """Extracts text from an image file using OCR."""
     try:
-        # For multi-page PDFs as images, this handles the first page.
-        # For single images, it works directly.
         images = convert_from_path(file_path)
-        text = pytesseract.image_to_string(images[0])
+        text = ""
+        for image in images:
+            text += pytesseract.image_to_string(image) + "\n"
         return text.strip()
     except Exception as e:
         print(f"Error extracting image text (OCR): {e}")
