@@ -6,7 +6,17 @@ from googleapiclient.discovery import build
 from datetime import timedelta
 
 # --- CONFIGURATION ---
-CLIENT_SECRETS_FILE = 'client_secret.json'
+CLIENT_SECRETS_CONFIG = {
+    "web": {
+        "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
+        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "redirect_uris": [os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")]
+    }
+}
+
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/gmail.readonly',
@@ -16,8 +26,8 @@ REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/goo
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
+    flow = Flow.from_client_config(
+        CLIENT_SECRETS_CONFIG,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
@@ -32,9 +42,6 @@ def create_google_calendar_event(credentials, task, run_time):
         
         end_time = run_time + timedelta(minutes=30)
 
-        # --- MODIFICATION START ---
-        # This is the most explicit and robust method. We provide a timezone-naive
-        # datetime string and a separate, explicit timezone identifier.
         event = {
             'summary': task,
             'description': 'Reminder set via AI Buddy.',
@@ -50,7 +57,6 @@ def create_google_calendar_event(credentials, task, run_time):
                 'useDefault': True,
             },
         }
-        # --- MODIFICATION END ---
 
         created_event = service.events().insert(calendarId='primary', body=event).execute()
         
