@@ -6,7 +6,9 @@ from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
 
-def schedule_reminder(msg, user, get_creds_func, scheduler, get_user_from_db_func):
+# The separate scheduler instance has been REMOVED from this file.
+
+def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
     It now receives the main scheduler instance from app.py.
@@ -17,10 +19,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler, get_user_from_db_fun
         return "❌ I couldn't understand that. Please try phrasing your reminder differently."
 
     try:
-        user_data = get_user_from_db_func(user)
-        user_timezone = user_data.get("timezone", "Asia/Kolkata")
-        tz = pytz.timezone(user_timezone)
-        
+        tz = pytz.timezone('Asia/Kolkata')
         run_time = date_parser.parse(timestamp_str)
 
         if run_time.tzinfo is None:
@@ -39,6 +38,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler, get_user_from_db_fun
             }]
         }]
 
+        # This now uses the main scheduler passed in from app.py, fixing the bug
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
@@ -48,7 +48,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler, get_user_from_db_fun
             replace_existing=True
         )
 
-        base_confirmation = f"✅ Reminder set for '{task}' on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
+        base_confirmation = f"✅ Reminder set for '{task}' on {run_time.strftime('%A, %b %d at %I:%M %p')}."
         gcal_confirmation = ""
         event_link_text = ""
 
@@ -59,7 +59,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler, get_user_from_db_fun
             if event_link:
                 event_link_text = f"\n\n🔗 View Event: {event_link}"
         else:
-            gcal_confirmation = "\n\n💡 _Connect your Google Account to also save reminders to your calendar!_"
+            gcal_confirmation = "\n\n💡 Connect your Google Account to also save reminders to your calendar!"
 
         return f"{base_confirmation}{gcal_confirmation}{event_link_text}"
 
