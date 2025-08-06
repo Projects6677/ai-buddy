@@ -643,7 +643,7 @@ def handle_text_message(user_text, sender_number, state):
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
-                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
+                response_text = "� *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         
