@@ -88,9 +88,11 @@ def create_or_update_user_in_db(sender_number, data):
     """Saves or updates a user's data in the database."""
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
+# --- MODIFICATION START ---
 def get_all_users_from_db():
     """Fetches all users (ID, name, and connection status) from the database."""
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
+# --- MODIFICATION END ---
 
 def delete_all_users_from_db():
     """Deletes all user data from the database."""
@@ -323,10 +325,8 @@ def handle_document_message(message, sender_number, state):
         os.remove(downloaded_path)
 
 def handle_text_message(user_text, sender_number, state):
-    # --- MODIFICATION START ---
-    # This check is now at the very top to ensure "menu" always works as an exit command.
     user_text_lower = user_text.lower()
-    menu_commands = ["start", "menu", "help", "options", "0","exit"]
+    menu_commands = ["start", "menu", "help", "options", "0"]
     if user_text_lower in menu_commands:
         user_sessions.pop(sender_number, None)
         user_data = get_user_from_db(sender_number)
@@ -337,7 +337,6 @@ def handle_text_message(user_text, sender_number, state):
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
-    # --- MODIFICATION END ---
     
     if user_text.startswith(".dev"):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
@@ -584,11 +583,8 @@ def handle_text_message(user_text, sender_number, state):
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_ai":
-        if is_greeting_or_menu: # Check if user wants to exit AI mode
-            user_sessions.pop(sender_number, None)
-            send_welcome_message(sender_number, user_data.get("name"))
-            return
         response_text = ai_reply(user_text)
+        user_sessions.pop(sender_number, None)
     elif state == "awaiting_translation":
         response_text = translate_with_grok(user_text)
         user_sessions.pop(sender_number, None)
@@ -666,7 +662,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "📝 Please send the text you want to convert into a Word document."
             
         elif not state:
-            response_text = "� I didn't understand that. Please type *menu* to see the options."
+            response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
         send_message(sender_number, response_text)
