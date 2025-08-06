@@ -46,7 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
-from weather import get_weather # <-- FIX: Imported from weather.py
+from weather import get_weather
 
 
 app = Flask(__name__)
@@ -72,8 +72,10 @@ users_collection = db.users
 
 user_sessions = {}
 
+# --- Centralized Scheduler ---
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-scheduler.start()
+if not scheduler.running:
+    scheduler.start()
 
 
 if not os.path.exists("uploads"):
@@ -673,19 +675,6 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
     requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
 
-def get_weather(city):
-    if not OPENWEATHER_API_KEY: return "❌ The OpenWeatherMap API key is not configured."
-    try:
-        response = requests.get(f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric")
-        response.raise_for_status()
-        data = response.json()
-        emoji = {"01":"☀️","02":"⛅️","03":"☁️","04":"☁️","09":"🌧️","10":"🌦️","11":"⛈️","13":"❄️","50":"🌫️"}.get(data["weather"][0]["icon"][:2], "🌡️")
-        return f"*{data['name']} Weather Report* {emoji}\n•----------------------------------•\n\n*{data['weather'][0]['description'].title()}*\n\n🌡️ *Temperature:* {data['main']['temp']}°C\n   _Feels like: {data['main']['feels_like']}°C_\n\n💧 *Humidity:* {data['main']['humidity']}%"
-    except requests.exceptions.HTTPError as e:
-        return f"⚠️ City not found: '{city.title()}'." if e.response.status_code == 404 else "❌ Oops! A weather service error occurred."
-    except Exception as e:
-        print(f"Weather function error: {e}"); return "❌ An unexpected error occurred."
-
 def convert_text_to_pdf(text):
     pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
@@ -783,7 +772,6 @@ def send_daily_briefing():
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
-# --- FIX: Added this function to resolve the undefined function error ---
 def send_test_briefing(developer_number):
     """Sends a test daily briefing only to the developer."""
     print(f"--- Running Test Briefing for {developer_number} ---")
@@ -854,14 +842,15 @@ def send_update_notification_to_all_users(feature_list):
 
 # --- RUN APP ---
 if __name__ == '__main__':
-    scheduler.add_job(
-        func=send_daily_briefing,
-        trigger='cron',
-        hour=8,
-        minute=0,
-        timezone='Asia/Kolkata',
-        id='daily_briefing_job',
-        replace_existing=True
-    )
+    if not scheduler.get_job('daily_briefing_job'):
+        scheduler.add_job(
+            func=send_daily_briefing,
+            trigger='cron',
+            hour=8,
+            minute=0,
+            timezone='Asia/Kolkata',
+            id='daily_briefing_job',
+            replace_existing=True
+        )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
