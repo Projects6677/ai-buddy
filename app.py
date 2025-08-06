@@ -72,10 +72,8 @@ users_collection = db.users
 
 user_sessions = {}
 
-# --- Centralized Scheduler ---
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-if not scheduler.running:
-    scheduler.start()
+scheduler.start()
 
 
 if not os.path.exists("uploads"):
@@ -325,6 +323,22 @@ def handle_document_message(message, sender_number, state):
         os.remove(downloaded_path)
 
 def handle_text_message(user_text, sender_number, state):
+    # --- MODIFICATION START ---
+    # This check is now at the very top to ensure "menu" always works as an exit command.
+    user_text_lower = user_text.lower()
+    menu_commands = ["start", "menu", "help", "options", "0","exit"]
+    if user_text_lower in menu_commands:
+        user_sessions.pop(sender_number, None)
+        user_data = get_user_from_db(sender_number)
+        if not user_data:
+            response_text = "👋 Hi there! To personalize your experience, what should I call you?"
+            user_sessions[sender_number] = "awaiting_name"
+            send_message(sender_number, response_text)
+        else:
+            send_welcome_message(sender_number, user_data.get("name"))
+        return
+    # --- MODIFICATION END ---
+    
     if user_text.startswith(".dev"):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
@@ -409,7 +423,6 @@ def handle_text_message(user_text, sender_number, state):
                 send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
             return
     
-    user_text_lower = user_text.lower()
     user_data = get_user_from_db(sender_number)
 
     if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']):
@@ -435,8 +448,7 @@ def handle_text_message(user_text, sender_number, state):
     response_text = ""
 
     greetings = ["hi", "hello", "hey"]
-    menu_commands = ["start", "menu", "help", "options", "0"]
-    is_greeting_or_menu = any(user_text_lower.startswith(greet) for greet in greetings) or user_text_lower in menu_commands
+    is_greeting = any(user_text_lower.startswith(greet) for greet in greetings)
 
     if state == "awaiting_name":
         name = user_text.split()[0].title()
@@ -572,6 +584,10 @@ def handle_text_message(user_text, sender_number, state):
         response_text = correct_grammar_with_grok(user_text)
         user_sessions.pop(sender_number, None)
     elif state == "awaiting_ai":
+        if is_greeting_or_menu: # Check if user wants to exit AI mode
+            user_sessions.pop(sender_number, None)
+            send_welcome_message(sender_number, user_data.get("name"))
+            return
         response_text = ai_reply(user_text)
     elif state == "awaiting_translation":
         response_text = translate_with_grok(user_text)
@@ -599,7 +615,7 @@ def handle_text_message(user_text, sender_number, state):
         if os.path.exists(docx_path): os.remove(docx_path)
         user_sessions.pop(sender_number, None)
     
-    elif is_greeting_or_menu:
+    elif is_greeting:
         user_sessions.pop(sender_number, None)
         if not user_data:
             response_text = "👋 Hi there! To personalize your experience, what should I call you?"
@@ -650,7 +666,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "📝 Please send the text you want to convert into a Word document."
             
         elif not state:
-            response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
+            response_text = "� I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
         send_message(sender_number, response_text)
@@ -854,3 +870,4 @@ if __name__ == '__main__':
         )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+�
