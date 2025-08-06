@@ -13,14 +13,11 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
     task, timestamp_str = parse_reminder_with_grok(msg)
 
-    # A timestamp is mandatory.
     if not timestamp_str:
         return "❌ I couldn't understand that. Please try phrasing your reminder differently."
 
-    # --- FIX: Provide a default task name if one isn't specified. ---
     if not task:
         task = "Reminder"
-    # --- END FIX ---
 
     try:
         tz = pytz.timezone('Asia/Kolkata')
