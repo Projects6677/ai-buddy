@@ -393,7 +393,7 @@ def handle_text_message(user_text, sender_number, state):
             return
         
         count = count_users_in_db()
-        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+        stats_message = f"� *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
 
@@ -859,3 +859,4 @@ if __name__ == '__main__':
         )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+�
