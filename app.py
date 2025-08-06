@@ -72,8 +72,10 @@ users_collection = db.users
 
 user_sessions = {}
 
+# --- Centralized Scheduler ---
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-scheduler.start()
+if not scheduler.running:
+    scheduler.start()
 
 
 if not os.path.exists("uploads"):
@@ -88,11 +90,9 @@ def create_or_update_user_in_db(sender_number, data):
     """Saves or updates a user's data in the database."""
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
-# --- MODIFICATION START ---
 def get_all_users_from_db():
     """Fetches all users (ID, name, and connection status) from the database."""
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
-# --- MODIFICATION END ---
 
 def delete_all_users_from_db():
     """Deletes all user data from the database."""
@@ -643,7 +643,7 @@ def handle_text_message(user_text, sender_number, state):
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
-                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
+                response_text = "� *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         
