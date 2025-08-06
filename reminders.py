@@ -6,6 +6,8 @@ from messaging import send_template_message
 from grok_ai import parse_reminder_with_grok
 from google_calendar_integration import create_google_calendar_event
 
+# The separate, non-functional scheduler instance has been REMOVED from this file.
+
 def schedule_reminder(msg, user, get_creds_func, scheduler):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
@@ -17,7 +19,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
         return "❌ I couldn't understand that. Please try phrasing your reminder differently."
 
     if not task:
-        task = "Reminder"
+        task = "Reminder" # Default task if AI can't find one
 
     try:
         tz = pytz.timezone('Asia/Kolkata')
@@ -28,6 +30,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
 
         now = datetime.now(tz)
         
+        # If the parsed time is in the past on the same day, assume it's for the next day
         if run_time < now:
             if run_time.date() == now.date():
                 run_time += timedelta(days=1)
@@ -43,6 +46,7 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             }]
         }]
 
+        # This now uses the main scheduler passed in from app.py, fixing the bug
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
