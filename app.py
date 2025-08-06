@@ -643,7 +643,7 @@ def handle_text_message(user_text, sender_number, state):
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
-                response_text = "� *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
+                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         
@@ -747,15 +747,15 @@ def send_daily_briefing():
         print("No users found. Skipping job.")
         return
 
-    headline = get_tech_headline()
-    weather = get_briefing_weather("Vijayawada")
-    tech_tip = get_tech_tip()
     quote = get_daily_quote()
+    weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
         user_id = user["_id"]
         user_name = user.get("name", "there")
+        
+        greeting = get_smart_greeting(user_name)
 
         email_summary = "Not connected."
         if user.get("is_google_connected"):
@@ -766,19 +766,17 @@ def send_daily_briefing():
                     email_summary = summary
                 else:
                     email_summary = "No important updates found."
-
-        template_name = "daily_briefing"
+        
+        template_name = "daily_briefing_v2"
         components = [
-            {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
+            {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
                 {"type": "text", "text": quote},
                 {"type": "text", "text": email_summary},
-                {"type": "text", "text": headline},
-                {"type": "text", "text": weather},
-                {"type": "text", "text": tech_tip}
+                {"type": "text", "text": weather}
             ]}
         ]
-
+        
         send_template_message(user_id, template_name, components)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
@@ -791,12 +789,10 @@ def send_test_briefing(developer_number):
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
 
-    headline = get_tech_headline()
-    weather = get_briefing_weather("Vijayawada")
-    tech_tip = get_tech_tip()
     quote = get_daily_quote()
-
+    weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
+    greeting = get_smart_greeting(user_name)
 
     email_summary = "Not connected."
     if user.get("is_google_connected"):
@@ -808,18 +804,16 @@ def send_test_briefing(developer_number):
             else:
                 email_summary = "No important updates found."
 
-    template_name = "daily_briefing"
+    template_name = "daily_briefing_v2"
     components = [
-        {"type": "header", "parameters": [{"type": "text", "text": user_name}]},
+        {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
             {"type": "text", "text": quote},
             {"type": "text", "text": email_summary},
-            {"type": "text", "text": headline},
-            {"type": "text", "text": weather},
-            {"type": "text", "text": tech_tip}
+            {"type": "text", "text": weather}
         ]}
     ]
-
+    
     send_template_message(developer_number, template_name, components)
     print("--- Test Briefing Finished ---")
 
