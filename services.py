@@ -2,11 +2,10 @@
 
 import requests
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 from googleapiclient.discovery import build
-import base64
-from grok_ai import summarize_emails_with_grok # Import the new function
+from grok_ai import summarize_emails_with_grok, get_smart_greeting, get_conversational_weather
 
 def get_daily_quote():
     """Fetches a random quote from the ZenQuotes API."""
@@ -37,7 +36,8 @@ def get_tech_headline():
         return "Could not fetch tech headline."
 
 def get_briefing_weather(city="Vijayawada"):
-    """Fetches a simple weather update for the daily briefing."""
+    """DEPRECATED: This function is no longer used. The new get_conversational_weather is used instead."""
+    # This function is kept for potential future use but is not called by the daily briefing.
     api_key = os.environ.get("OPENWEATHER_API_KEY")
     if not api_key:
         return "Weather update unavailable."
@@ -64,12 +64,10 @@ def get_tech_tip():
     ]
     return random.choice(tips)
 
-# --- NEW FUNCTION ---
 def get_email_summary(credentials):
     """Fetches and summarizes recent emails from the user's Gmail account."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        # Search for emails in the last 12 hours
         query = 'in:inbox newer_than:12h'
         result = service.users().messages().list(userId='me', q=query).execute()
         messages = result.get('messages', [])
@@ -78,17 +76,16 @@ def get_email_summary(credentials):
             return None
 
         email_content_for_summary = ""
-        for msg in messages[:3]: # Limit to summarizing the latest 3 emails
+        for msg in messages[:3]:
             txt = service.users().messages().get(userId='me', id=msg['id']).execute()
             payload = txt['payload']
             headers = payload['headers']
             
-            subject = next(d['value'] for d in headers if d['name'] == 'Subject')
-            sender = next(d['value'] for d in headers if d['name'] == 'From')
+            subject = next((d['value'] for d in headers if d['name'] == 'Subject'), 'No Subject')
+            sender = next((d['value'] for d in headers if d['name'] == 'From'), 'Unknown Sender')
             
             email_content_for_summary += f"From: {sender}\nSubject: {subject}\nSnippet: {txt['snippet']}\n---\n"
 
-        # Use the AI to summarize the collected email content
         return summarize_emails_with_grok(email_content_for_summary)
 
     except Exception as e:
