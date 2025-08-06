@@ -38,10 +38,12 @@ from grok_ai import (
     translate_with_grok,
     analyze_document_context, 
     get_contextual_ai_response,
-    is_document_followup_question
+    is_document_followup_question,
+    get_smart_greeting,
+    get_conversational_weather
 )
 from email_sender import send_email
-from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
+from services import get_daily_quote, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -72,10 +74,8 @@ users_collection = db.users
 
 user_sessions = {}
 
-# --- Centralized Scheduler ---
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-if not scheduler.running:
-    scheduler.start()
+scheduler.start()
 
 
 if not os.path.exists("uploads"):
@@ -643,7 +643,7 @@ def handle_text_message(user_text, sender_number, state):
             creds = get_credentials_from_db(sender_number)
             if creds:
                 user_sessions[sender_number] = "awaiting_email_recipient"
-                response_text = "� *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
+                response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         
