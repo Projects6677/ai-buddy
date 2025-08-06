@@ -33,7 +33,8 @@ def send_email(credentials, recipient_emails, subject, body, attachment_paths=No
     Sends an email using the user's Gmail account via the Gmail API.
     """
     try:
-        service = build('gmail', 'v1', credentials=credentials)
+        # From email_sender.py
+        service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
         
         # Get the user's own email address to use as the 'From' field
         user_email = service.users().getProfile(userId='me').execute().get('emailAddress')
