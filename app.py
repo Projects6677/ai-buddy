@@ -44,11 +44,12 @@ from email_sender import send_email
 from services import get_daily_quote, get_tech_headline, get_briefing_weather, get_tech_tip, get_email_summary
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
-from messaging import send_message, send_template_message, send_interactive_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
+from weather import get_weather
 
 
-app = Flask(__name__) # --- THIS LINE IS NOW CORRECTED ---
+app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = os.urandom(24)
 
@@ -213,10 +214,14 @@ def webhook():
         state = user_sessions.get(sender_number)
         msg_type = message.get("type")
 
-        if msg_type == "interactive" and message.get("interactive", {}).get("type") == "list_reply":
-            list_reply = message["interactive"]["list_reply"]
-            selection_id = list_reply["id"]
-            handle_text_message(selection_id, sender_number, state)
+        if msg_type == "interactive":
+            interactive_data = message["interactive"]
+            if interactive_data["type"] == "list_reply":
+                selection_id = interactive_data["list_reply"]["id"]
+                handle_text_message(selection_id, sender_number, state)
+            elif interactive_data["type"] == "button_reply":
+                selection_id = interactive_data["button_reply"]["id"]
+                handle_text_message(selection_id, sender_number, state)
         elif msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, state)
