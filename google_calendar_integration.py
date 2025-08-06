@@ -28,7 +28,8 @@ def create_google_calendar_event(credentials, task, run_time):
     Creates an event on the user's primary Google Calendar and returns a link.
     """
     try:
-        service = build('calendar', 'v3', credentials=credentials)
+        # From google_calendar_integration.py
+        service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
         
         end_time = run_time + timedelta(minutes=30)
 
