@@ -16,6 +16,68 @@ GROK_HEADERS = {
 
 # --- CONVERSATIONAL AI FUNCTIONS ---
 
+def get_smart_greeting(user_name):
+    """Generates a smart, context-aware greeting for the daily briefing."""
+    if not GROK_API_KEY: return f"☀️ Good Morning, {user_name}!"
+
+    prompt = f"""
+    You are an AI assistant that writes cheerful morning greetings.
+    Today's date is {datetime.now().strftime('%A, %B %d, %Y')}.
+    Check if today is a well-known special day (e.g., a holiday like Diwali, Friendship Day, etc.).
+
+    - If it IS a special day, create a short, festive greeting. For example: "🎉 Happy Friendship Day, {user_name}!"
+    - If it is NOT a special day, just return the standard greeting: "☀️ Good Morning, {user_name}!"
+
+    Return only the greeting text.
+    """
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5 }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"Grok smart greeting error: {e}")
+        return f"☀️ Good Morning, {user_name}!"
+
+def get_conversational_weather(city="Vijayawada"):
+    """Gets weather data and uses AI to create a conversational forecast."""
+    if not GROK_API_KEY or not os.environ.get("OPENWEATHER_API_KEY"):
+        return "Weather data is currently unavailable."
+
+    # Step 1: Get raw weather data
+    try:
+        api_key = os.environ.get("OPENWEATHER_API_KEY")
+        url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        weather_description = data['weather'][0]['description']
+        temp = data['main']['temp']
+    except Exception as e:
+        print(f"Raw weather fetch error: {e}")
+        return "Could not fetch today's weather data."
+
+    # Step 2: Use AI to make it conversational
+    prompt = f"""
+    You are an AI weather forecaster. Given the following weather data, write a short, friendly, and conversational forecast (1-2 sentences).
+    If it's raining or cloudy, suggest taking an umbrella. If it's sunny, suggest it's a nice day to be outside.
+
+    - Location: {city}
+    - Temperature: {temp}°C
+    - Conditions: {weather_description}
+
+    Example: "It looks like a clear day in Vijayawada with a temperature of around 30°C. Perfect weather to be outside!"
+    Return only the forecast text.
+    """
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.6 }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"Grok conversational weather error: {e}")
+        return f"Today in {city}: {temp}°C, {weather_description}."
+        
 def analyze_document_context(text):
     """
     Analyzes document text to understand its type and extract key data for follow-up actions.
