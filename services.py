@@ -67,7 +67,8 @@ def get_tech_tip():
 def get_email_summary(credentials):
     """Fetches and summarizes recent emails from the user's Gmail account."""
     try:
-        service = build('gmail', 'v1', credentials=credentials)
+        # From services.py
+        service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
         query = 'in:inbox newer_than:12h'
         result = service.users().messages().list(userId='me', q=query).execute()
         messages = result.get('messages', [])
