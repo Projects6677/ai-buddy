@@ -32,6 +32,8 @@ def create_google_calendar_event(credentials, task, run_time):
         
         end_time = run_time + timedelta(minutes=30)
 
+        # This is the most explicit and robust method. We provide a timezone-naive
+        # datetime string and a separate, explicit timezone identifier.
         event = {
             'summary': task,
             'description': f"Reminder set for {run_time.strftime('%I:%M %p')} via AI Buddy.",
