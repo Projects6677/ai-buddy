@@ -33,10 +33,13 @@ def send_template_message(to, template_name, components=[]):
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
+    # --- MODIFICATION START ---
+    # Standardized language code to en_US to match all your templates
     template_data = {
         "name": template_name,
         "language": {"code": "en_US"}
     }
+    # --- MODIFICATION END ---
     if components:
         template_data["components"] = components
         
@@ -93,9 +96,8 @@ def send_interactive_menu(to, name):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
-# --- NEW FUNCTION ---
 def send_conversion_menu(to):
-    """Sends an interactive button menu for file conversions."""
+    """Sends an interactive LIST menu for file conversions."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -106,40 +108,27 @@ def send_conversion_menu(to):
         "to": to,
         "type": "interactive",
         "interactive": {
-            "type": "button",
-            "body": {
-                "text": "📁 *File/Text Conversion Menu*\n\nPlease choose a conversion type:"
-            },
+            "type": "list",
+            "header": {"type": "text", "text": "File Conversion Menu 📁"},
+            "body": {"text": "Please choose a conversion type from the list below."},
+            "footer": {"text": "Select one option"},
             "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": "conv_pdf_to_text", "title": "PDF ➡️ Text"}},
-                    {"type": "reply", "reply": {"id": "conv_text_to_pdf", "title": "Text ➡️ PDF"}},
-                    {"type": "reply", "reply": {"id": "conv_pdf_to_word", "title": "PDF ➡️ Word"}},
-                    # Note: WhatsApp allows a maximum of 3 buttons per message.
-                    # To add the 4th, we'd need a different approach like a list menu.
-                    # For now, we'll offer the top 3.
-                ]
-            }
-        }
-    }
-    # A second message for the 4th option
-    data2 = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": "And the final option:"},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": "conv_text_to_word", "title": "Text ➡️ Word"}}
+                "button": "Conversion Options",
+                "sections": [
+                    {
+                        "title": "Available Conversions",
+                        "rows": [
+                            {"id": "conv_pdf_to_text", "title": "PDF ➡️ Text"},
+                            {"id": "conv_text_to_pdf", "title": "Text ➡️ PDF"},
+                            {"id": "conv_pdf_to_word", "title": "PDF ➡️ Word"},
+                            {"id": "conv_text_to_word", "title": "Text ➡️ Word"}
+                        ]
+                    }
                 ]
             }
         }
     }
     try:
         requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
-        time.sleep(0.5) # Small delay between messages
-        requests.post(url, headers=headers, json=data2, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send conversion menu to {to}: {e.response.text if e.response else e}")
