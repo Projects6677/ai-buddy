@@ -88,9 +88,11 @@ def create_or_update_user_in_db(sender_number, data):
     """Saves or updates a user's data in the database."""
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
+# --- MODIFICATION START ---
 def get_all_users_from_db():
     """Fetches all users (ID, name, and connection status) from the database."""
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
+# --- MODIFICATION END ---
 
 def delete_all_users_from_db():
     """Deletes all user data from the database."""
