@@ -43,7 +43,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from reminders import schedule_reminder
+from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
@@ -121,6 +121,20 @@ def get_credentials_from_db(sender_number):
     if creds and creds.valid:
         return creds
     return None
+
+# --- NEW HELPER FUNCTION ---
+def send_message_to_all_users(message):
+    """Sends a standard text message to all users in the database."""
+    print(f"--- Sending message to all users: '{message}' ---")
+    all_users = list(get_all_users_from_db())
+    if not all_users:
+        print("No users found. Skipping message.")
+        return
+    for user in all_users:
+        user_id = user["_id"]
+        send_message(user_id, message)
+        time.sleep(1) # Add a small delay to avoid rate limiting
+    print("Message sent to all users.")
 
 # === ROUTES ===
 @app.route('/')
@@ -324,7 +338,16 @@ def handle_text_message(user_text, sender_number, session_data):
     
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
-    # --- START OF THE FIX ---
+    # Handle a user confirming the data deletion
+    if current_state == "awaiting_nuke_confirmation":
+        if user_text_lower == "yes":
+            delete_all_users_from_db()
+            send_message(sender_number, "💀 All user data has been permanently deleted.")
+        else:
+            send_message(sender_number, "👍 Deletion cancelled. All data is safe.")
+        set_user_session(sender_number, None)
+        return
+
     # This block now handles the follow-up message when the user is in the "awaiting_reminder_text" state.
     if current_state == "awaiting_reminder_text":
         send_message(sender_number, "🤖 Processing your reminder...")
@@ -348,7 +371,6 @@ def handle_text_message(user_text, sender_number, session_data):
         # Clear the session state to allow for new commands
         set_user_session(sender_number, None)
         return
-    # --- END OF THE FIX ---
 
     if current_state:
         if current_state == "awaiting_document_question":
@@ -423,6 +445,29 @@ def handle_text_message(user_text, sender_number, session_data):
         
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
+        return
+
+    # --- NEW CODE: Handling the special developer commands ---
+    if user_text_lower == ".nuke":
+        set_user_session(sender_number, "awaiting_nuke_confirmation")
+        send_message(sender_number, "⚠️ WARNING! This will delete all user data from the database. Are you absolutely sure? Reply with `yes` to confirm.")
+        return
+    elif user_text_lower == ".stats":
+        user_count = count_users_in_db()
+        send_message(sender_number, f"📊 There are currently *{user_count}* users in the database.")
+        return
+    # --- MODIFIED .dev and .test logic ---
+    elif user_text_lower.startswith(".dev"):
+        message_to_send = user_text.strip()[4:].strip()
+        if message_to_send:
+            send_message_to_all_users(message_to_send)
+            send_message(sender_number, "✅ Message scheduled to be sent to all users.")
+        else:
+            send_message(sender_number, "Please provide a message after '.dev'. Usage: `.dev Your message here`")
+        return
+    elif user_text_lower == ".test":
+        send_message(sender_number, "🛠 Sending you a test briefing now...")
+        send_test_briefing(sender_number)
         return
 
     if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
@@ -619,7 +664,7 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_day_in_history()
+    history_fact = get_on_this_day in history()
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
