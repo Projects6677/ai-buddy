@@ -307,9 +307,15 @@ def handle_document_message(message, sender_number, session_data):
                 return
 
             send_message(sender_number, "🔄 Extracting text from your PDF...")
-            extracted_text = get_text_from_file(downloaded_path, mime_type)
-            response = extracted_text if extracted_text else "❌ Could not find any readable text in the PDF."
-            send_message(sender_number, response)
+            try:
+                extracted_text = get_text_from_file(downloaded_path, mime_type)
+                response = extracted_text if extracted_text else "❌ Could not find any readable text in the PDF."
+                send_message(sender_number, response)
+            except Exception as e:
+                print(f"❌ PDF to Text conversion error: {e}")
+                send_message(sender_number, "❌ Sorry, the PDF to text conversion failed. The file may be corrupted or in an unsupported format.")
+            finally:
+                if os.path.exists(downloaded_path): os.remove(downloaded_path)
             set_user_session(sender_number, None)
             return
 
@@ -321,6 +327,7 @@ def handle_document_message(message, sender_number, session_data):
 
             if not mime_type or not mime_type.startswith('application/pdf'):
                 send_message(sender_number, "❌ I can only convert PDF files to Word. Please upload a PDF.")
+                if os.path.exists(downloaded_path): os.remove(downloaded_path)
                 return
 
             send_message(sender_number, "🔄 Converting your PDF to a Word document...")
@@ -834,7 +841,7 @@ def send_update_notification_to_all_users(feature_list):
         print("ADMIN_SECRET_KEY is not set. Cannot send notifications.")
         return
     print("--- Sending update notifications to all users ---")
-    all_users = list(get_all_users_from_db())
+    all_users = list(get_all_users in db())
     if not all_users:
         print("No users found, skipping notifications.")
         return
