@@ -43,7 +43,7 @@ from grok_ai import (
     get_conversational_weather
 )
 from email_sender import send_email
-from services import get_daily_quote, get_email_summary
+from services import get_daily_quote, get_on_this_day_in_history # Updated import
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -396,22 +396,6 @@ def handle_text_message(user_text, sender_number, state):
         stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
-    
-    elif user_text.lower() == ".reconnect":
-        try:
-            parsed_uri = urlparse(request.url_root)
-            base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
-            auth_link = f"{base_url}/google-auth?state={sender_number}"
-            
-            auth_message = (
-                "Here is your link to re-connect your Google Account. "
-                f"Click here: {auth_link}"
-            )
-            send_message(sender_number, auth_message)
-        except Exception as e:
-            print(f"Error generating Google Auth link: {e}")
-            send_message(sender_number, "Sorry, I couldn't generate a reconnect link right now.")
-        return
 
     if isinstance(state, dict) and state.get("state") == "awaiting_document_question":
         if not is_document_followup_question(user_text):
@@ -480,7 +464,7 @@ def handle_text_message(user_text, sender_number, state):
                 auth_link = f"{base_url}/google-auth?state={sender_number}"
                 
                 auth_message = (
-                    "To get the most out of me (like email summaries and calendar events), connect your Google Account. "
+                    "To get the most out of me (like calendar events), connect your Google Account. "
                     f"Click here to connect: {auth_link}"
                 )
                 send_message(sender_number, auth_message)
@@ -764,6 +748,7 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -772,23 +757,13 @@ def send_daily_briefing():
         user_name = user.get("name", "there")
         
         greeting = get_smart_greeting(user_name)
-
-        email_summary = "Not connected."
-        if user.get("is_google_connected"):
-            creds = get_credentials_from_db(user_id)
-            if creds:
-                summary = get_email_summary(creds)
-                if summary:
-                    email_summary = summary
-                else:
-                    email_summary = "No important updates found."
         
         template_name = "daily_briefing_v2"
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
                 {"type": "text", "text": quote},
-                {"type": "text", "text": email_summary},
+                {"type": "text", "text": history_fact},
                 {"type": "text", "text": weather}
             ]}
         ]
@@ -806,26 +781,17 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
-
-    email_summary = "Not connected."
-    if user.get("is_google_connected"):
-        creds = get_credentials_from_db(developer_number)
-        if creds:
-            summary = get_email_summary(creds)
-            if summary:
-                email_summary = summary
-            else:
-                email_summary = "No important updates found."
 
     template_name = "daily_briefing_v2"
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
             {"type": "text", "text": quote},
-            {"type": "text", "text": email_summary},
+            {"type": "text", "text": history_fact},
             {"type": "text", "text": weather}
         ]}
     ]
