@@ -7,8 +7,11 @@ from datetime import datetime
 # --- Configuration ---
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
 GROK_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROK_MODEL_FAST = "llama3-8b-8192"
-GROK_MODEL_SMART = "llama3-70b-8192"
+# --- MODIFICATION START ---
+# Updated to use the latest GPT-OSS models
+GROK_MODEL_FAST = "gpt-oss-20b-chat"
+GROK_MODEL_SMART = "gpt-oss-120b-chat"
+# --- MODIFICATION END ---
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
     "Content-Type": "application/json"
@@ -170,7 +173,7 @@ def is_document_followup_question(text):
     prompt = f"""
     A user has previously uploaded a document and is in a follow-up conversation.
     Their new message is: "{text}"
-    Is this message a question or command related to the document (e.g., "summarize it", "what are the key points?", "critique it")?
+    Is this message a question or command related to the.document (e.g., "summarize it", "what are the key points?", "critique it")?
     Or is it a completely new, unrelated command (e.g., a greeting, a reminder request, a weather query)?
     Respond with only the word "yes" if it is a follow-up, or "no" if it is a new command.
     """
