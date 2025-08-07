@@ -396,6 +396,22 @@ def handle_text_message(user_text, sender_number, state):
         stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
+    
+    elif user_text.lower() == ".reconnect":
+        try:
+            parsed_uri = urlparse(request.url_root)
+            base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
+            auth_link = f"{base_url}/google-auth?state={sender_number}"
+            
+            auth_message = (
+                "Here is your link to re-connect your Google Account. "
+                f"Click here: {auth_link}"
+            )
+            send_message(sender_number, auth_message)
+        except Exception as e:
+            print(f"Error generating Google Auth link: {e}")
+            send_message(sender_number, "Sorry, I couldn't generate a reconnect link right now.")
+        return
 
     if isinstance(state, dict) and state.get("state") == "awaiting_document_question":
         if not is_document_followup_question(user_text):
@@ -768,8 +784,8 @@ def send_daily_briefing():
                     email_summary = "No important updates found."
         
         template_name = "daily_briefing_v2"
-        # The header has been removed to diagnose the "400 Bad Request" error.
         components = [
+            {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
                 {"type": "text", "text": quote},
                 {"type": "text", "text": email_summary},
@@ -789,16 +805,24 @@ def send_test_briefing(developer_number):
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
 
-    # --- MODIFICATION START ---
-    # Using hardcoded values to isolate the template issue.
-    quote = "Test 1"
-    email_summary = "Test 2"
-    weather = "Test 3"
-    # --- MODIFICATION END ---
+    quote = get_daily_quote()
+    weather = get_conversational_weather()
+    user_name = user.get("name", "Developer")
+    greeting = get_smart_greeting(user_name)
+
+    email_summary = "Not connected."
+    if user.get("is_google_connected"):
+        creds = get_credentials_from_db(developer_number)
+        if creds:
+            summary = get_email_summary(creds)
+            if summary:
+                email_summary = summary
+            else:
+                email_summary = "No important updates found."
 
     template_name = "daily_briefing_v2"
-    # The header has been removed to diagnose the "400 Bad Request" error.
     components = [
+        {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
             {"type": "text", "text": quote},
             {"type": "text", "text": email_summary},
