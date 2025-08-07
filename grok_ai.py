@@ -14,7 +14,6 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
-
 # --- NEW: PRIMARY INTENT ROUTER ---
 def route_user_intent(text):
     """
@@ -81,7 +80,56 @@ def route_user_intent(text):
         return {"intent": "general_query", "entities": {}}
 
 
-# --- CONVERSATIONAL AI FUNCTIONS (These remain as they are for specific, non-routing tasks) ---
+# --- CONVERSATIONAL AI FUNCTIONS (These have been updated to handle memory) ---
+
+def get_chat_response(prompt, chat_history=[], document_text=None):
+    """
+    Handles a conversational chat, using previous history and optional document context.
+    """
+    if not GROK_API_KEY:
+        return "❌ The Grok API key is not configured.", []
+    
+    # Start with a clean list of messages
+    messages = []
+    
+    # Add a system prompt to define the AI's role.
+    system_prompt_content = "You are an AI assistant. Be friendly, helpful, and concise. Respond in a natural, conversational tone."
+    
+    # If document text is available, add a special instruction to the system prompt.
+    if document_text:
+        system_prompt_content += f"\n\n--- CONTEXT DOCUMENT ---\n{document_text}\n--- END CONTEXT ---\n\nAnswer all questions based on the provided document. If you cannot find the answer in the document, say 'I couldn't find that information in the document.' Do not use any outside knowledge."
+    
+    messages.append({"role": "system", "content": system_prompt_content})
+    
+    # Add the existing chat history
+    messages.extend(chat_history)
+    
+    # Add the current user prompt
+    messages.append({"role": "user", "content": prompt})
+
+    payload = { 
+        "model": GROK_MODEL_SMART, 
+        "messages": messages, 
+        "temperature": 0.7 
+    }
+    try:
+        res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
+        res.raise_for_status()
+        ai_response_content = res.json()["choices"][0]["message"]["content"].strip()
+        
+        # Append both the user's message and the AI's response to the history for the next turn
+        updated_history = chat_history + [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": ai_response_content}
+        ]
+        
+        return ai_response_content, updated_history
+
+    except Exception as e:
+        print(f"Grok AI error: {e}")
+        return "⚠️ Sorry, I couldn't connect to the AI service right now.", chat_history
+
+# --- OTHER FUNCTIONS (These remain unchanged) ---
 
 def get_smart_greeting(user_name):
     """Generates a smart, context-aware greeting for the daily briefing."""
@@ -134,19 +182,6 @@ def analyze_document_context(text):
         print(f"Grok document context analysis error: {e}")
         return None
 
-def get_contextual_ai_response(document_text, question):
-    """Answers a user's question based on the context of a previously uploaded document."""
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured."
-    prompt = f"""You are an AI assistant with a document's content loaded into your memory. A user is now asking a question about this document. Your task is to answer their question based *only* on the information provided in the document text. Here is the full text of the document: --- DOCUMENT START --- {document_text} --- DOCUMENT END --- Here is the user's question: "{question}". Provide a direct and helpful answer. If the answer cannot be found in the document, say "I couldn't find the answer to that in the document." """
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=60)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok contextual response error: {e}")
-        return "⚠️ Sorry, I had trouble answering that question."
-
 def is_document_followup_question(text):
     """Quickly determines if a user's message is a follow-up question or a new command."""
     if not GROK_API_KEY: return True
@@ -162,17 +197,6 @@ def is_document_followup_question(text):
     except Exception as e:
         print(f"Grok context check error: {e}")
         return True
-
-def ai_reply(prompt):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7 }
-    try:
-        res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok AI error: {e}")
-        return "⚠️ Sorry, I couldn't connect to the AI service right now."
 
 def correct_grammar_with_grok(text):
     if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
