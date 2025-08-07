@@ -6,8 +6,8 @@ import time
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
-def send_message(to, message):
-    """Sends a standard text message."""
+def send_message(to, message, max_retries=3):
+    """Sends a standard text message with retry logic."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -19,27 +19,39 @@ def send_message(to, message):
         "type": "text",
         "text": {"body": message, "preview_url": True}
     }
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send message to {to}: {e}")
 
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+            print(f"Message sent successfully to {to}. Status: {response.status_code}")
+            return
+        except requests.exceptions.RequestException as e:
+            retries += 1
+            if retries < max_retries:
+                # Use exponential backoff for retries
+                sleep_time = 2 ** retries
+                print(f"❌ Failed to send message to {to}: {e}. Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
+            else:
+                print(f"❌ Failed to send message to {to} after {max_retries} retries: {e}")
+                # Log the specific response text to help debug the "Bad Request" error
+                if e.response:
+                    print(f"Response content: {e.response.text}")
+                raise e # Re-raise the exception after exhausting retries
 
-def send_template_message(to, template_name, components=[]):
-    """Sends a pre-approved template message."""
+def send_template_message(to, template_name, components=[], max_retries=3):
+    """Sends a pre-approved template message with retry logic."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    # --- MODIFICATION START ---
-    # Standardized language code to en_US to match all your templates
     template_data = {
         "name": template_name,
         "language": {"code": "en_US"}
     }
-    # --- MODIFICATION END ---
     if components:
         template_data["components"] = components
         
@@ -49,12 +61,27 @@ def send_template_message(to, template_name, components=[]):
         "type": "template",
         "template": template_data
     }
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
-        print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send template message to {to}: {e.response.text if e.response else e}")
+
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+            print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
+            return
+        except requests.exceptions.RequestException as e:
+            retries += 1
+            if retries < max_retries:
+                # Use exponential backoff for retries
+                sleep_time = 2 ** retries
+                print(f"❌ Failed to send template message to {to}: {e}. Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
+            else:
+                print(f"❌ Failed to send template message to {to} after {max_retries} retries: {e}")
+                # Log the specific response text to help debug the "Bad Request" error
+                if e.response:
+                    print(f"Response content: {e.response.text}")
+                raise e # Re-raise the exception after exhausting retries
 
 def send_interactive_menu(to, name):
     """Sends the main interactive list menu."""
@@ -91,8 +118,7 @@ def send_interactive_menu(to, name):
         }
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
