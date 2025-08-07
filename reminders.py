@@ -3,11 +3,22 @@ from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 import pytz
 from messaging import send_template_message
-# REMOVED: No longer importing from grok_ai
-# from grok_ai import parse_reminder_with_grok 
 from google_calendar_integration import create_google_calendar_event
+from apscheduler.schedulers.background import BackgroundScheduler # New import for clarity
 
-# MODIFICATION: The function now accepts task and timestamp_str directly
+# This function is now defined at the top level of the module,
+# making it globally accessible and serializable by the scheduler.
+def reminder_job(user, task, template_name, components):
+    """
+    Function to be executed by the scheduler to send a reminder message.
+    It takes all necessary data as arguments.
+    """
+    print(f"[REMINDER TRIGGERED] Sending reminder to {user} for '{task}'")
+    try:
+        send_template_message(user, template_name, components)
+    except Exception as e:
+        print(f"❌ Failed to send reminder message: {e}")
+
 def schedule_reminder(task, timestamp_str, user, get_creds_func, scheduler):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
@@ -24,8 +35,9 @@ def schedule_reminder(task, timestamp_str, user, get_creds_func, scheduler):
         try:
             run_time = date_parser.parse(timestamp_str)
         except Exception as e:
+            # More specific error message to help the user identify date parsing issues.
             print(f"❌ Failed to parse timestamp: {timestamp_str} — {e}")
-            return "⚠️ Couldn’t understand the time format. Please try again."
+            return "⚠️ Couldn’t understand the time format. Please try again with a clear date and time."
 
         # Ensure timezone awareness
         if run_time.tzinfo is None:
@@ -53,19 +65,15 @@ def schedule_reminder(task, timestamp_str, user, get_creds_func, scheduler):
             }]
         }]
 
-        def reminder_job():
-            print(f"[REMINDER TRIGGERED] Sending reminder to {user} for '{task}'")
-            try:
-                send_template_message(user, template_name, components)
-            except Exception as e:
-                print(f"❌ Failed to send reminder message: {e}")
-
+        # The scheduler.add_job call now references the top-level reminder_job function
+        # and passes the necessary data as arguments, which can be serialized.
         scheduler.add_job(
             func=reminder_job,
             trigger='date',
             run_date=run_time,
             id=f"reminder_{user}_{int(run_time.timestamp())}",
-            replace_existing=True
+            replace_existing=True,
+            args=[user, task, template_name, components]
         )
 
         base_confirmation = f"✅ Reminder set for *{task}* on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
