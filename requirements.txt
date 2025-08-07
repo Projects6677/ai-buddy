@@ -8,7 +8,7 @@ fpdf
 python-docx
 werkzeug
 python-dotenv
-pdf2docx
+pypandoc
 pytesseract
 pdf2image
 pandas
