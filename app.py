@@ -36,14 +36,14 @@ from grok_ai import (
     edit_email_body,
     write_email_body_with_grok,
     translate_with_grok,
-    analyze_document_context, 
+    analyze_document_context,
     get_contextual_ai_response,
     is_document_followup_question,
     get_smart_greeting,
     get_conversational_weather
 )
 from email_sender import send_email
-from services import get_daily_quote, get_on_this_day_in_history # Updated import
+from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -72,8 +72,6 @@ client = MongoClient(MONGO_URI)
 db = client.ai_buddy_db
 users_collection = db.users
 
-user_sessions = {}
-
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 scheduler.start()
 
@@ -81,7 +79,7 @@ scheduler.start()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# === DATABASE HELPER FUNCTIONS ===
+# === DATABASE & SESSION HELPER FUNCTIONS ===
 def get_user_from_db(sender_number):
     """Fetches a single user's data from the database."""
     return users_collection.find_one({"_id": sender_number})
@@ -89,6 +87,18 @@ def get_user_from_db(sender_number):
 def create_or_update_user_in_db(sender_number, data):
     """Saves or updates a user's data in the database."""
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
+
+def set_user_session(sender_number, session_data):
+    """Saves or clears the user's session data in their database document."""
+    if session_data is None:
+        users_collection.update_one({"_id": sender_number}, {"$unset": {"session": ""}})
+    else:
+        users_collection.update_one({"_id": sender_number}, {"$set": {"session": session_data}}, upsert=True)
+
+def get_user_session(sender_number):
+    """Fetches a user's session data from the database."""
+    user_data = get_user_from_db(sender_number)
+    return user_data.get("session") if user_data else None
 
 def get_all_users_from_db():
     """Fetches all users (ID, name, and connection status) from the database."""
@@ -109,22 +119,16 @@ def save_credentials_to_db(sender_number, credentials):
     create_or_update_user_in_db(sender_number, {"google_credentials": pickled_creds, "is_google_connected": True})
 
 def get_credentials_from_db(sender_number):
-    """
-    Gets Google credentials from the database and refreshes them if needed.
-    """
+    """Gets Google credentials from the database and refreshes them if needed."""
     user_data = get_user_from_db(sender_number)
     if not user_data or "google_credentials" not in user_data:
         return None
-
     creds = pickle.loads(user_data["google_credentials"])
-
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
         save_credentials_to_db(sender_number, creds)
-
     if creds and creds.valid:
         return creds
-    
     return None
 
 # === ROUTES ===
@@ -147,11 +151,9 @@ def google_auth_callback():
     flow = get_google_auth_flow()
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
-    
     save_credentials_to_db(sender_number, credentials)
-    
     send_message(sender_number, "✅ Your Google account has been successfully connected!")
-    user_sessions.pop(sender_number, None)
+    set_user_session(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
 
 @app.route('/test-briefing')
@@ -213,22 +215,24 @@ def webhook():
         if "messages" not in entry or not entry["messages"]: return "OK", 200
         message = entry["messages"][0]
         sender_number = message["from"]
-        state = user_sessions.get(sender_number)
+        session_data = get_user_session(sender_number)
         msg_type = message.get("type")
 
         if msg_type == "interactive":
             interactive_data = message["interactive"]
+            selection_id = ""
             if interactive_data["type"] == "list_reply":
                 selection_id = interactive_data["list_reply"]["id"]
-                handle_text_message(selection_id, sender_number, state)
             elif interactive_data["type"] == "button_reply":
                 selection_id = interactive_data["button_reply"]["id"]
-                handle_text_message(selection_id, sender_number, state)
+            
+            if selection_id:
+                handle_text_message(selection_id, sender_number, session_data)
         elif msg_type == "text":
             user_text = message["text"]["body"].strip()
-            handle_text_message(user_text, sender_number, state)
+            handle_text_message(user_text, sender_number, session_data)
         elif msg_type in ["document", "image"]:
-            handle_document_message(message, sender_number, state)
+            handle_document_message(message, sender_number, session_data)
         else:
             send_message(sender_number, "🤔 Sorry, I can only process text, documents, and images at the moment.")
 
@@ -237,123 +241,123 @@ def webhook():
     return "OK", 200
 
 # === MESSAGE HANDLERS ===
-def handle_document_message(message, sender_number, state):
+def handle_document_message(message, sender_number, session_data):
     media_id = message.get(message['type'], {}).get('id')
     if not media_id:
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
-    if isinstance(state, dict) and state.get("state") == "awaiting_email_attachment":
+    if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
         filename = message.get('document', {}).get('filename', 'attached_file')
         send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
         downloaded_path, _ = download_media_from_whatsapp(media_id)
         if downloaded_path:
-            if "attachment_paths" not in state:
-                state["attachment_paths"] = []
-            state["attachment_paths"].append(downloaded_path)
-            state["state"] = "awaiting_more_attachments"
-            user_sessions[sender_number] = state
+            if "attachment_paths" not in session_data:
+                session_data["attachment_paths"] = []
+            session_data["attachment_paths"].append(downloaded_path)
+            session_data["state"] = "awaiting_more_attachments"
+            set_user_session(sender_number, session_data)
             response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
             send_message(sender_number, response_text)
         else:
             send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
         return
 
+    simple_state = session_data if isinstance(session_data, str) else None
+
+    if simple_state == "awaiting_pdf_to_text" or simple_state == "awaiting_pdf_to_docx":
+        downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+        if not downloaded_path:
+            send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
+            return
+        
+        try:
+            if simple_state == "awaiting_pdf_to_text":
+                extracted_text = get_text_from_file(downloaded_path, mime_type)
+                response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
+                send_message(sender_number, response)
+            elif simple_state == "awaiting_pdf_to_docx":
+                output_docx_path = downloaded_path + ".docx"
+                cv = Converter(downloaded_path)
+                cv.convert(output_docx_path, start=0, end=None)
+                cv.close()
+                send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+                if os.path.exists(output_docx_path): os.remove(output_docx_path)
+        finally:
+            set_user_session(sender_number, None)
+            if os.path.exists(downloaded_path): os.remove(downloaded_path)
+        return
+
+    send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
     downloaded_path, mime_type = download_media_from_whatsapp(media_id)
     if not downloaded_path:
         send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
         return
-
-    if state == "awaiting_pdf_to_text":
-        extracted_text = get_text_from_file(downloaded_path, mime_type)
-        response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
-        send_message(sender_number, response)
-        user_sessions.pop(sender_number, None)
-        if os.path.exists(downloaded_path): os.remove(downloaded_path)
-        return
-
-    elif state == "awaiting_pdf_to_docx":
-        output_docx_path = downloaded_path + ".docx"
-        cv = Converter(downloaded_path)
-        cv.convert(output_docx_path, start=0, end=None)
-        cv.close()
-        send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
-        if os.path.exists(output_docx_path): os.remove(output_docx_path)
-        user_sessions.pop(sender_number, None)
-        if os.path.exists(downloaded_path): os.remove(downloaded_path)
-        return
-
-    send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-    
-    extracted_text = get_text_from_file(downloaded_path, mime_type)
-    if not extracted_text:
-        send_message(sender_number, "❌ I couldn't find any readable text in that file.")
-        if os.path.exists(downloaded_path): os.remove(downloaded_path)
-        return
-
-    analysis = analyze_document_context(extracted_text)
-    if not analysis:
-        send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
-        if os.path.exists(downloaded_path): os.remove(downloaded_path)
-        return
         
-    doc_type = analysis.get("doc_type")
-    data = analysis.get("data", {})
+    try:
+        extracted_text = get_text_from_file(downloaded_path, mime_type)
+        if not extracted_text:
+            send_message(sender_number, "❌ I couldn't find any readable text in that file.")
+            return
 
-    user_sessions[sender_number] = {
-        "state": "awaiting_document_question",
-        "document_text": extracted_text,
-        "doc_type": doc_type,
-        "data": data
-    }
+        analysis = analyze_document_context(extracted_text)
+        if not analysis:
+            send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
+            set_user_session(sender_number, None)
+            return
+            
+        doc_type = analysis.get("doc_type")
+        data = analysis.get("data", {})
 
-    if doc_type == "resume":
-        response = "I've analyzed your resume. I can give you a score and feedback, or you can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
-    elif doc_type == "project_plan":
-        response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
-    elif doc_type == "meeting_invite":
-        task = data.get("task", "this event")
-        response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
-    elif doc_type == "q_and_a":
-        response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
-    else:
-        response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
+        new_session = {"state": "awaiting_document_question", "document_text": extracted_text, "doc_type": doc_type, "data": data}
+        set_user_session(sender_number, new_session)
 
-    send_message(sender_number, response)
+        if doc_type == "resume":
+            response = "I've analyzed your resume. I can give you a score and feedback, or you can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
+        elif doc_type == "project_plan":
+            response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
+        elif doc_type == "meeting_invite":
+            task = data.get("task", "this event")
+            response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
+        elif doc_type == "q_and_a":
+            response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
+        else:
+            response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
+        send_message(sender_number, response)
+    finally:
+        if os.path.exists(downloaded_path):
+            os.remove(downloaded_path)
 
-    if os.path.exists(downloaded_path):
-        os.remove(downloaded_path)
-
-def handle_text_message(user_text, sender_number, state):
+def handle_text_message(user_text, sender_number, session_data):
     user_text_lower = user_text.lower()
     menu_commands = ["start", "menu", "help", "options", "0"]
-    if user_text_lower in menu_commands:
-        user_sessions.pop(sender_number, None)
+    greetings = ["hi", "hello", "hey"]
+    
+    current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
+
+    if user_text_lower in menu_commands and current_state != "awaiting_ai":
+        set_user_session(sender_number, None)
         user_data = get_user_from_db(sender_number)
         if not user_data:
-            response_text = "👋 Hi there! To personalize your experience, what should I call you?"
-            user_sessions[sender_number] = "awaiting_name"
-            send_message(sender_number, response_text)
+            set_user_session(sender_number, "awaiting_name")
+            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
     
+    # --- Dev commands ---
     if user_text.startswith(".dev"):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
         parts = user_text.split()
         if len(parts) < 3:
             send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
             return
-        
         command, key, features = parts[0], parts[1], " ".join(parts[2:])
-
         if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
             send_message(sender_number, "❌ Invalid admin secret key.")
             return
-
         scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
         send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
         return
@@ -362,17 +366,14 @@ def handle_text_message(user_text, sender_number, state):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-
         parts = user_text.split()
         if len(parts) != 2:
             send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
             return
-
         passcode = parts[1]
         if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
             send_message(sender_number, "❌ Invalid passcode.")
             return
-
         send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
         send_test_briefing(sender_number)
         return
@@ -381,7 +382,6 @@ def handle_text_message(user_text, sender_number, state):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
         result = delete_all_users_from_db()
         count = result.deleted_count
         send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
@@ -391,78 +391,52 @@ def handle_text_message(user_text, sender_number, state):
         if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
             send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
             return
-        
         count = count_users_in_db()
         stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
 
-    if isinstance(state, dict) and state.get("state") == "awaiting_document_question":
+    # --- State-based conversation logic ---
+    if isinstance(session_data, dict) and session_data.get("state") == "awaiting_document_question":
         if not is_document_followup_question(user_text):
-            user_sessions.pop(sender_number, None)
-            state = None
-        else:
-            doc_type = state.get("doc_type")
-            doc_text = state.get("document_text")
-            doc_data = state.get("data", {})
-
-            if doc_type == "meeting_invite" and user_text.lower() in ["yes", "ok", "sure", "yep", "schedule it"]:
-                task = doc_data.get("task")
-                timestamp = doc_data.get("timestamp")
-                if task and timestamp:
-                    response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
-                    send_message(sender_number, response)
-                else:
-                    send_message(sender_number, "I seem to have lost the details. Could you try uploading the invite again?")
-                user_sessions.pop(sender_number, None)
-            else:
-                send_message(sender_number, "🤖 Thinking...")
-                response = get_contextual_ai_response(doc_text, user_text)
-                send_message(sender_number, response)
-                send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+            set_user_session(sender_number, None)
+            handle_text_message(user_text, sender_number, None)
             return
+        
+        doc_type = session_data.get("doc_type")
+        doc_text = session_data.get("document_text")
+        doc_data = session_data.get("data", {})
+        if doc_type == "meeting_invite" and user_text.lower() in ["yes", "ok", "sure", "yep", "schedule it"]:
+            task = doc_data.get("task")
+            timestamp = doc_data.get("timestamp")
+            if task and timestamp:
+                response = schedule_reminder(f"Remind me about {task} at {timestamp}", sender_number, get_credentials_from_db, scheduler)
+                send_message(sender_number, response)
+            else:
+                send_message(sender_number, "I seem to have lost the details. Could you try uploading the invite again?")
+            set_user_session(sender_number, None)
+        else:
+            send_message(sender_number, "🤖 Thinking...")
+            response = get_contextual_ai_response(doc_text, user_text)
+            send_message(sender_number, response)
+            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+        return
     
     user_data = get_user_from_db(sender_number)
-
-    if any(keyword in user_text_lower for keyword in ['excel', 'sheet', 'report', 'export']):
-        send_message(sender_number, "📊 Generating your expense report...")
-        file_path = export_expenses_to_excel(sender_number, user_data)
-        if file_path:
-            send_file_to_user(sender_number, file_path, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Here is your expense report.xlsx")
-            os.remove(file_path)
-        else:
-            send_message(sender_number, "You have no expenses to export yet.")
-        return
-
-    if is_expense_intent(user_text):
-        send_message(sender_number, "Analyzing expense...")
-        expenses = parse_expense_with_grok(user_text)
-        if expenses:
-            confirmations = [log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp')) if isinstance(e.get('cost'), (int, float)) else f"❓ Could not log '{e.get('item')}' - cost is unclear." for e in expenses]
-            send_message(sender_number, "\n".join(confirmations))
-        else:
-            send_message(sender_number, "Sorry, I couldn't understand that as an expense. Try being more specific about the cost and item.")
-        return
-
+    
     response_text = ""
-
-    greetings = ["hi", "hello", "hey"]
-    is_greeting = any(user_text_lower.startswith(greet) for greet in greetings)
-
-    if state == "awaiting_name":
+    
+    if current_state == "awaiting_name":
         name = user_text.split()[0].title()
-        new_user_data = {"name": name, "expenses": [], "is_google_connected": False}
-        create_or_update_user_in_db(sender_number, new_user_data)
-        user_sessions.pop(sender_number, None)
+        create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False})
+        set_user_session(sender_number, None)
         send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
         time.sleep(1)
-
         if GOOGLE_REDIRECT_URI:
             try:
                 parsed_uri = urlparse(request.url_root)
                 base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
                 auth_link = f"{base_url}/google-auth?state={sender_number}"
-                
                 auth_message = (
                     "To get the most out of me (like calendar events), connect your Google Account. "
                     f"Click here to connect: {auth_link}"
@@ -471,79 +445,92 @@ def handle_text_message(user_text, sender_number, state):
                 time.sleep(2)
             except Exception as e:
                 print(f"Error generating Google Auth link: {e}")
-
         send_welcome_message(sender_number, name)
         return
     
-    elif state == "awaiting_email_recipient":
+    elif current_state == "awaiting_email_recipient":
         recipients = [email.strip() for email in user_text.split(',')]
         valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
         if valid_recipients:
-            user_sessions[sender_number] = {"state": "awaiting_email_subject", "recipients": valid_recipients}
+            new_session = {"state": "awaiting_email_subject", "recipients": valid_recipients}
+            set_user_session(sender_number, new_session)
             response_text = f"✅ Got recipient(s). Now, what should the subject of the email be?"
         else:
             response_text = "⚠️ I couldn't find any valid email addresses. Please try again."
-    elif isinstance(state, dict) and state.get("state") == "awaiting_email_subject":
+    
+    elif current_state == "awaiting_email_subject":
         subject = user_text
         send_message(sender_number, "👍 Great subject. Let me think of some follow-up questions...")
         questions = analyze_email_subject(subject)
+        session_data["subject"] = subject
         if questions:
-            user_sessions[sender_number] = {"state": "gathering_email_details", "recipients": state["recipients"], "subject": subject, "questions": questions, "answers": [], "current_question_index": 0}
+            session_data["state"] = "gathering_email_details"
+            session_data["questions"] = questions
+            session_data["answers"] = []
+            session_data["current_question_index"] = 0
             response_text = questions[0]
         else:
-            user_sessions[sender_number] = {"state": "awaiting_email_prompt_fallback", "recipients": state["recipients"], "subject": subject}
+            session_data["state"] = "awaiting_email_prompt_fallback"
             response_text = "Okay, I'll just need one main prompt. What should the email be about?"
-    elif isinstance(state, dict) and state.get("state") == "gathering_email_details":
-        state["answers"].append(user_text)
-        state["current_question_index"] += 1
-        if state["current_question_index"] < len(state["questions"]):
-            response_text = state["questions"][state["current_question_index"]]
-            user_sessions[sender_number] = state
+        set_user_session(sender_number, session_data)
+        
+    elif current_state == "gathering_email_details":
+        session_data["answers"].append(user_text)
+        session_data["current_question_index"] += 1
+        if session_data["current_question_index"] < len(session_data["questions"]):
+            response_text = session_data["questions"][session_data["current_question_index"]]
+            set_user_session(sender_number, session_data)
         else:
             send_message(sender_number, "🤖 Got all the details. Writing your email with AI, please wait...")
-            full_prompt = f"Write an email with the subject '{state['subject']}'. Use the following details:\n" + "\n".join([f"- {q}: {a}" for q, a in zip(state["questions"], state["answers"])])
+            full_prompt = f"Write an email with the subject '{session_data['subject']}'. Use the following details:\n" + "\n".join([f"- {q}: {a}" for q, a in zip(session_data["questions"], session_data["answers"])])
             email_body = write_email_body_with_grok(full_prompt)
             if "❌" in email_body:
                 response_text = email_body
-                user_sessions.pop(sender_number, None)
+                set_user_session(sender_number, None)
             else:
-                user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
+                session_data["state"] = "awaiting_email_edit"
+                session_data["body"] = email_body
+                set_user_session(sender_number, session_data)
                 response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
-    elif isinstance(state, dict) and state.get("state") == "awaiting_email_prompt_fallback":
+
+    elif current_state == "awaiting_email_prompt_fallback":
         prompt = user_text
         send_message(sender_number, "🤖 Writing your email with AI, please wait...")
         email_body = write_email_body_with_grok(prompt)
         if "❌" in email_body:
             response_text = email_body
-            user_sessions.pop(sender_number, None)
+            set_user_session(sender_number, None)
         else:
-            user_sessions[sender_number] = {"state": "awaiting_email_edit", "recipients": state["recipients"], "subject": state["subject"], "body": email_body}
+            session_data["state"] = "awaiting_email_edit"
+            session_data["body"] = email_body
+            set_user_session(sender_number, session_data)
             response_text = f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._"
-    elif isinstance(state, dict) and state.get("state") == "awaiting_more_attachments":
+            
+    elif current_state == "awaiting_more_attachments":
         if user_text_lower == "done":
-            state["state"] = "awaiting_email_edit"
-            user_sessions[sender_number] = state
-            num_files = len(state.get("attachment_paths", []))
+            session_data["state"] = "awaiting_email_edit"
+            set_user_session(sender_number, session_data)
+            num_files = len(session_data.get("attachment_paths", []))
             response_text = f"✅ Okay, {num_files} file(s) are attached. You can now review the draft, ask for more changes, or type *'send'*."
         else:
             response_text = "Please upload another file, or type *'done'* to finish."
-    elif isinstance(state, dict) and state.get("state") == "awaiting_email_edit":
+            
+    elif current_state == "awaiting_email_edit":
         if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
             send_message(sender_number, "✅ Okay, sending the email from your account...")
-            
             creds = get_credentials_from_db(sender_number)
             if creds:
-                attachment_paths = state.get("attachment_paths", [])
-                response_text = send_email(creds, state["recipients"], state["subject"], state["body"], attachment_paths)
+                attachment_paths = session_data.get("attachment_paths", [])
+                response_text = send_email(creds, session_data["recipients"], session_data["subject"], session_data["body"], attachment_paths)
                 for path in attachment_paths:
                     if os.path.exists(path): os.remove(path)
-                user_sessions.pop(sender_number, None)
+                set_user_session(sender_number, None)
             else:
                 response_text = "❌ Could not send email. Your Google account is not connected properly. Please try re-connecting."
-            
+                set_user_session(sender_number, None)
         elif user_text_lower == "attach":
-            state["state"] = "awaiting_email_attachment"
-            user_sessions[sender_number] = state
+            session_data["state"] = "awaiting_email_attachment"
+            set_user_session(sender_number, session_data)
             response_text = "📎 Please upload the first file you want to attach."
         else:
             _, timestamp_str = parse_reminder_with_grok(user_text)
@@ -552,45 +539,50 @@ def handle_text_message(user_text, sender_number, state):
                     tz = pytz.timezone('Asia/Kolkata')
                     now = datetime.now(tz)
                     run_time = date_parser.parse(timestamp_str)
-                    if run_time.tzinfo is None:
-                        run_time = tz.localize(run_time)
+                    if run_time.tzinfo is None: run_time = tz.localize(run_time)
                     if run_time < now:
                         response_text = f"❌ The time you provided ({run_time.strftime('%I:%M %p')}) is in the past."
                     else:
                         creds = get_credentials_from_db(sender_number)
                         if creds:
-                            attachment_paths = state.get("attachment_paths", [])
-                            scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[creds, state["recipients"], state["subject"], state["body"], attachment_paths])
+                            attachment_paths = session_data.get("attachment_paths", [])
+                            scheduler.add_job(func=send_email, trigger='date', run_date=run_time, args=[creds, session_data["recipients"], session_data["subject"], session_data["body"], attachment_paths])
                             response_text = f"👍 Scheduled! The email will be sent from your account on *{run_time.strftime('%A, %b %d at %I:%M %p')}*."
                         else:
                             response_text = "❌ Could not schedule email. Your Google account is not connected."
-                        user_sessions.pop(sender_number, None)
+                        set_user_session(sender_number, None)
                 except (date_parser.ParserError, ValueError) as e:
                     print(f"Error parsing timestamp from Grok: {e}")
                     response_text = "I understood you want to schedule the email, but had trouble with the exact time."
             else:
                 send_message(sender_number, "✏️ Applying your changes, please wait...")
-                new_body = edit_email_body(state["body"], user_text)
+                new_body = edit_email_body(session_data["body"], user_text)
                 if new_body:
-                    user_sessions[sender_number]["body"] = new_body
+                    session_data["body"] = new_body
+                    set_user_session(sender_number, session_data)
                     response_text = f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._"
                 else:
                     response_text = "Sorry, I couldn't apply that change."
-    elif state == "awaiting_reminder":
+    
+    elif current_state == "awaiting_reminder":
         response_text = schedule_reminder(user_text, sender_number, get_credentials_from_db, scheduler)
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_grammar":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_grammar":
         response_text = correct_grammar_with_grok(user_text)
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_ai":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_ai":
+        if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
+            set_user_session(sender_number, None)
+            send_welcome_message(sender_number, user_data.get("name"))
+            return
         response_text = ai_reply(user_text)
-    elif state == "awaiting_translation":
+    elif current_state == "awaiting_translation":
         response_text = translate_with_grok(user_text)
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_weather":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_weather":
         response_text = get_weather(user_text)
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_currency_conversion":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_currency_conversion":
         send_message(sender_number, "Analysing your request...")
         conversions = parse_currency_with_grok(user_text)
         if conversions:
@@ -598,69 +590,79 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "\n\n".join(results)
         else:
             response_text = "❌ Sorry, I couldn't understand that conversion request."
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_text_to_pdf":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_text_to_pdf":
         pdf_path = convert_text_to_pdf(user_text)
         send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
         if os.path.exists(pdf_path): os.remove(pdf_path)
-        user_sessions.pop(sender_number, None)
-    elif state == "awaiting_text_to_word":
+        set_user_session(sender_number, None)
+    elif current_state == "awaiting_text_to_word":
         docx_path = convert_text_to_word(user_text)
         send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
         if os.path.exists(docx_path): os.remove(docx_path)
-        user_sessions.pop(sender_number, None)
+        set_user_session(sender_number, None)
     
-    elif is_greeting:
-        user_sessions.pop(sender_number, None)
+    elif any(greet in user_text_lower for greet in greetings) and not current_state:
+        set_user_session(sender_number, None)
         if not user_data:
-            response_text = "👋 Hi there! To personalize your experience, what should I call you?"
-            user_sessions[sender_number] = "awaiting_name"
+            set_user_session(sender_number, "awaiting_name")
+            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
         else:
             send_welcome_message(sender_number, user_data.get("name"))
-    
-    else: # Main Menu selections or button replies
-        if user_text == "1":
-            user_sessions[sender_number] = "awaiting_reminder"
+        return
+
+    else:
+        if is_expense_intent(user_text):
+            send_message(sender_number, "Analyzing expense...")
+            expenses = parse_expense_with_grok(user_text)
+            if expenses:
+                confirmations = [log_expense(sender_number, e.get('cost'), e.g.get('item'), e.get('place'), e.get('timestamp')) if isinstance(e.get('cost'), (int, float)) else f"❓ Could not log '{e.get('item')}' - cost is unclear." for e in expenses]
+                response_text = "\n".join(confirmations)
+            else:
+                response_text = "Sorry, I couldn't understand that as an expense. Try being more specific about the cost and item."
+        
+        elif user_text == "1":
+            set_user_session(sender_number, "awaiting_reminder")
             response_text = "🕒 Sure, what's the reminder?\n\n_Examples:_\n- _Remind me to call John tomorrow at 4pm_"
         elif user_text == "2":
-            user_sessions[sender_number] = "awaiting_grammar"
+            set_user_session(sender_number, "awaiting_grammar")
             response_text = "✍️ Send me the sentence or paragraph you want me to correct."
         elif user_text == "3":
-            user_sessions[sender_number] = "awaiting_ai"
+            set_user_session(sender_number, "awaiting_ai")
             response_text = "🤖 You can now chat with me! Ask me anything.\n\n_Type `menu` to exit this mode._"
         elif user_text == "4":
             send_conversion_menu(sender_number)
         elif user_text == "5":
-            user_sessions[sender_number] = "awaiting_translation"
+            set_user_session(sender_number, "awaiting_translation")
             response_text = "🌍 *AI Translator Active!*\n\nHow can I help you translate today?"
         elif user_text == "6":
-            user_sessions[sender_number] = "awaiting_weather"
+            set_user_session(sender_number, "awaiting_weather")
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
-            user_sessions[sender_number] = "awaiting_currency_conversion"
+            set_user_session(sender_number, "awaiting_currency_conversion")
             response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
-                user_sessions[sender_number] = "awaiting_email_recipient"
+                set_user_session(sender_number, "awaiting_email_recipient")
                 response_text = "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)"
             else:
                 response_text = "⚠️ To use the AI Email Assistant, you must first connect your Google account. Please use the link I sent you during setup."
         
         elif user_text == "conv_pdf_to_text":
-            user_sessions[sender_number] = "awaiting_pdf_to_text"
+            set_user_session(sender_number, "awaiting_pdf_to_text")
             response_text = "📥 Please upload the PDF you want to convert to text."
         elif user_text == "conv_text_to_pdf":
-            user_sessions[sender_number] = "awaiting_text_to_pdf"
+            set_user_session(sender_number, "awaiting_text_to_pdf")
             response_text = "📝 Please send the text you want to convert into a PDF."
         elif user_text == "conv_pdf_to_word":
-            user_sessions[sender_number] = "awaiting_pdf_to_docx"
+            set_user_session(sender_number, "awaiting_pdf_to_docx")
             response_text = "📥 Please upload the PDF to convert into Word."
         elif user_text == "conv_text_to_word":
-            user_sessions[sender_number] = "awaiting_text_to_word"
+            set_user_session(sender_number, "awaiting_text_to_word")
             response_text = "📝 Please send the text you want to convert into a Word document."
             
-        elif not state:
+        elif not current_state:
             response_text = "🤔 I didn't understand that. Please type *menu* to see the options."
 
     if response_text:
@@ -718,9 +720,13 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
 
     if "expenses" not in user_data:
         user_data["expenses"] = []
-    user_data["expenses"].append(new_expense)
-
-    create_or_update_user_in_db(sender_number, user_data)
+    
+    # Use update_one with $push to avoid race conditions
+    users_collection.update_one(
+        {"_id": sender_number},
+        {"$push": {"expenses": new_expense}},
+        upsert=True
+    )
 
     log_message = f"✅ Logged: *₹{amount:.2f}* for *{item.title()}*"
     if place and place != "N/A": log_message += f" at *{place.title()}*"
