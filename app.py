@@ -27,9 +27,7 @@ from google.auth.transport.requests import Request
 
 from currency import convert_currency
 from grok_ai import (
-    # --- MODIFICATION: IMPORT NEW ROUTER ---
     route_user_intent,
-    # --- Other functions ---
     ai_reply,
     correct_grammar_with_grok,
     analyze_email_subject,
@@ -67,7 +65,7 @@ DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
 
 
-# --- DATABASE & SCHEDULER (with previous fixes) ---
+# --- DATABASE & SCHEDULER ---
 client = MongoClient(MONGO_URI)
 db = client.ai_buddy_db
 users_collection = db.users
@@ -82,7 +80,7 @@ scheduler.start()
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# === HELPER FUNCTIONS (with previous fixes) ===
+# === HELPER FUNCTIONS ===
 def get_user_from_db(sender_number):
     return users_collection.find_one({"_id": sender_number})
 
@@ -240,31 +238,32 @@ def handle_document_message(message, sender_number, session_data):
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
-    if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
-        filename = message.get('document', {}).get('filename', 'attached_file')
-        send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-        downloaded_path, _ = download_media_from_whatsapp(media_id)
-        if downloaded_path:
-            if "attachment_paths" not in session_data:
-                session_data["attachment_paths"] = []
-            session_data["attachment_paths"].append(downloaded_path)
-            session_data["state"] = "awaiting_more_attachments"
-            set_user_session(sender_number, session_data)
-            response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
-            send_message(sender_number, response_text)
-        else:
-            send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
-        return
-
-    simple_state = session_data if isinstance(session_data, str) else None
-
-    if simple_state in ["awaiting_pdf_to_text", "awaiting_pdf_to_docx"]:
-        downloaded_path, mime_type = download_media_from_whatsapp(media_id)
-        if not downloaded_path:
-            send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
+    downloaded_path = None # Initialize path to None
+    try:
+        if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
+            filename = message.get('document', {}).get('filename', 'attached_file')
+            send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
+            downloaded_path, _ = download_media_from_whatsapp(media_id)
+            if downloaded_path:
+                if "attachment_paths" not in session_data:
+                    session_data["attachment_paths"] = []
+                session_data["attachment_paths"].append(downloaded_path)
+                session_data["state"] = "awaiting_more_attachments"
+                set_user_session(sender_number, session_data)
+                response_text = f"✅ File attached successfully!\n\nType *'done'* when you have finished attaching files, or upload another document."
+                send_message(sender_number, response_text)
+            else:
+                send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
             return
-        
-        try:
+
+        simple_state = session_data if isinstance(session_data, str) else None
+
+        if simple_state in ["awaiting_pdf_to_text", "awaiting_pdf_to_docx"]:
+            downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+            if not downloaded_path:
+                send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
+                return
+            
             if simple_state == "awaiting_pdf_to_text":
                 extracted_text = get_text_from_file(downloaded_path, mime_type)
                 response = extracted_text if extracted_text else "Could not find any readable text in the PDF."
@@ -276,18 +275,15 @@ def handle_document_message(message, sender_number, session_data):
                 cv.close()
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
                 if os.path.exists(output_docx_path): os.remove(output_docx_path)
-        finally:
             set_user_session(sender_number, None)
-            if os.path.exists(downloaded_path): os.remove(downloaded_path)
-        return
+            return
 
-    send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-    downloaded_path, mime_type = download_media_from_whatsapp(media_id)
-    if not downloaded_path:
-        send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
-        return
-        
-    try:
+        send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
+        downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+        if not downloaded_path:
+            send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
+            return
+            
         extracted_text = get_text_from_file(downloaded_path, mime_type)
         if not extracted_text:
             send_message(sender_number, "❌ I couldn't find any readable text in that file.")
@@ -318,7 +314,8 @@ def handle_document_message(message, sender_number, session_data):
             response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
         send_message(sender_number, response)
     finally:
-        if os.path.exists(downloaded_path):
+        # --- MODIFICATION: GUARANTEED FILE CLEANUP ---
+        if downloaded_path and os.path.exists(downloaded_path):
             os.remove(downloaded_path)
 
 def handle_text_message(user_text, sender_number, session_data):
@@ -330,7 +327,21 @@ def handle_text_message(user_text, sender_number, session_data):
 
     # --- 1. Handle state-based (multi-step) conversations first ---
     if current_state:
-        # Handle simple states that require text input
+        # --- MODIFICATION START: FIX FOR DOCUMENT Q&A ---
+        if current_state == "awaiting_document_question":
+            if not is_document_followup_question(user_text):
+                set_user_session(sender_number, None)
+                handle_text_message(user_text, sender_number, None) # Re-process as new command
+                return
+            
+            doc_text = session_data.get("document_text")
+            send_message(sender_number, "🤖 Thinking...")
+            response = get_contextual_ai_response(doc_text, user_text)
+            send_message(sender_number, response)
+            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+            return
+        # --- MODIFICATION END ---
+
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
             set_user_session(sender_number, None)
@@ -384,9 +395,8 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, name)
             return
 
-        # Handle complex (dictionary-based) states
+        # Handle complex (dictionary-based) states like email
         if isinstance(session_data, dict):
-            # Email composition logic
             if current_state == "awaiting_email_recipient":
                 recipients = [email.strip() for email in user_text.split(',')]
                 valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
@@ -398,17 +408,7 @@ def handle_text_message(user_text, sender_number, session_data):
                     send_message(sender_number, "⚠️ I couldn't find any valid email addresses. Please try again.")
                 return
             # ... (The rest of the email logic from the previous full code goes here) ...
-
-            # Document Q&A logic
-            if current_state == "awaiting_document_question":
-                if not is_document_followup_question(user_text):
-                    set_user_session(sender_number, None)
-                    handle_text_message(user_text, sender_number, None) # Re-process
-                    return
-                # ... (rest of document Q&A logic) ...
-                return
         
-        # If state is known but not handled above, it's an error, so we reset.
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
         return
@@ -452,8 +452,23 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
         return
-    # ... (other menu button logic) ...
-
+    elif user_text == "conv_pdf_to_text":
+        set_user_session(sender_number, "awaiting_pdf_to_text")
+        send_message(sender_number, "📥 Please upload the PDF you want to convert to text.")
+        return
+    elif user_text == "conv_text_to_pdf":
+        set_user_session(sender_number, "awaiting_text_to_pdf")
+        send_message(sender_number, "📝 Please send the text you want to convert into a PDF.")
+        return
+    elif user_text == "conv_pdf_to_word":
+        set_user_session(sender_number, "awaiting_pdf_to_docx")
+        send_message(sender_number, "📥 Please upload the PDF to convert into Word.")
+        return
+    elif user_text == "conv_text_to_word":
+        set_user_session(sender_number, "awaiting_text_to_word")
+        send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
+        return
+    
     # --- 4. Use the AI Intent Router for natural language ---
     send_message(sender_number, "🤖 Analyzing...")
     intent_data = route_user_intent(user_text)
