@@ -20,7 +20,9 @@ def route_user_intent(text):
     """
     Analyzes user text to determine intent and extract entities in a single API call.
     """
-    if not GROK_API_KEY: return None
+    if not GROK_API_KEY:
+        # Fallback for when API key is not available
+        return {"intent": "general_query", "entities": {}}
 
     # The current date is provided for context, helping the AI parse relative dates like "tomorrow"
     prompt = f"""
@@ -63,7 +65,7 @@ def route_user_intent(text):
     Return only the JSON object.
     """
     payload = {
-        "model": GROK_MODEL_SMART,  # Use the smart model for this complex task
+        "model": GROK_MODEL_SMART,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
         "response_format": {"type": "json_object"}
@@ -83,7 +85,6 @@ def route_user_intent(text):
 
 def get_smart_greeting(user_name):
     """Generates a smart, context-aware greeting for the daily briefing."""
-    # This function remains the same
     if not GROK_API_KEY: return f"☀️ Good Morning, {user_name}!"
     prompt = f"You are an AI assistant that writes cheerful morning greetings. Today's date is {datetime.now().strftime('%A, %B %d, %Y')}. Check if today is a well-known special day (e.g., a holiday like Diwali, Friendship Day, etc.). If it IS a special day, create a short, festive greeting like '🎉 Happy Friendship Day, {user_name}!'. If it is NOT a special day, just return the standard greeting: '☀️ Good Morning, {user_name}!'. Return only the greeting text."
     payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5 }
@@ -97,7 +98,6 @@ def get_smart_greeting(user_name):
 
 def get_conversational_weather(city="Vijayawada"):
     """Gets weather data and uses AI to create a conversational forecast."""
-    # This function remains the same
     if not GROK_API_KEY or not os.environ.get("OPENWEATHER_API_KEY"):
         return "Weather data is currently unavailable."
     try:
@@ -123,7 +123,6 @@ def get_conversational_weather(city="Vijayawada"):
 
 def analyze_document_context(text):
     """Analyzes document text to understand its type and extract key data for follow-up actions."""
-    # This function remains the same
     if not GROK_API_KEY or not text or not text.strip(): return None
     prompt = f"""You are an expert document analysis AI. Read the following text and determine its type and extract key information. Your response MUST be a JSON object with two keys: "doc_type" and "data". Possible "doc_type" values are: "resume", "project_plan", "meeting_invite", "q_and_a", "generic_document". The "data" key should be an empty object `{{}}` unless it's a "meeting_invite", in which case it should be `{{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}`. The current date is {datetime.now().strftime('%Y-%m-%d %A')}. Here is the text to analyze: --- {text} --- Return only the JSON object."""
     payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "response_format": {"type": "json_object"} }
@@ -137,7 +136,6 @@ def analyze_document_context(text):
 
 def get_contextual_ai_response(document_text, question):
     """Answers a user's question based on the context of a previously uploaded document."""
-    # This function remains the same
     if not GROK_API_KEY: return "❌ The Grok API key is not configured."
     prompt = f"""You are an AI assistant with a document's content loaded into your memory. A user is now asking a question about this document. Your task is to answer their question based *only* on the information provided in the document text. Here is the full text of the document: --- DOCUMENT START --- {document_text} --- DOCUMENT END --- Here is the user's question: "{question}". Provide a direct and helpful answer. If the answer cannot be found in the document, say "I couldn't find the answer to that in the document." """
     payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3 }
@@ -151,7 +149,6 @@ def get_contextual_ai_response(document_text, question):
 
 def is_document_followup_question(text):
     """Quickly determines if a user's message is a follow-up question or a new command."""
-    # This function remains the same
     if not GROK_API_KEY: return True
     command_keywords = ["remind me", "hi", "hello", "hey", "menu", "what's the weather", "convert", "translate", "fix grammar", "my expenses", "send an email", ".dev", ".test", ".nuke", ".stats"]
     if any(keyword in text.lower() for keyword in command_keywords):
@@ -165,9 +162,6 @@ def is_document_followup_question(text):
     except Exception as e:
         print(f"Grok context check error: {e}")
         return True
-
-# --- The functions below are still useful for specific, non-routing tasks ---
-# (e.g., ai_reply, correct_grammar_with_grok, analyze_email_subject, etc.)
 
 def ai_reply(prompt):
     if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
@@ -193,7 +187,6 @@ def correct_grammar_with_grok(text):
         print(f"Grok Grammar error: {e}")
         return "⚠️ Sorry, the grammar correction service is unavailable."
 
-# The email-specific functions remain as they are triggered by a menu selection, not natural language intent
 def analyze_email_subject(subject):
     if not GROK_API_KEY: return None
     prompt = f"""You are an email assistant. The user wants to write an email with the subject: "{subject}". What are the 2-3 most important follow-up questions you should ask to get the necessary details to write this email? Return your answer as a JSON object with a single key "questions" which is an array of strings. For a 'leave' subject, ask for dates and reason. For a 'meeting request' subject, ask for topic, date/time, and attendees. For a generic subject, just ask for the main point of the email. Only return the JSON object."""
