@@ -9,8 +9,8 @@ GROK_API_KEY = os.environ.get("GROK_API_KEY")
 GROK_URL = "https://api.groq.com/openai/v1/chat/completions"
 # --- MODIFICATION START ---
 # Updated to use the latest GPT-OSS models
-GROK_MODEL_FAST = "gpt-oss-20b-chat"
-GROK_MODEL_SMART = "gpt-oss-120b-chat"
+GROK_MODEL_FAST = "openai/gpt-oss-20b"
+GROK_MODEL_SMART = "openai/gpt-oss-120b"
 # --- MODIFICATION END ---
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
