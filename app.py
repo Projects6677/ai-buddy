@@ -40,10 +40,7 @@ from grok_ai import (
     get_conversational_weather
 )
 from email_sender import send_email
-# --- FIX START ---
-# Corrected the import statement to use the correct function name.
 from services import get_daily_quote, get_on_this_day_in_history
-# --- FIX END ---
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -303,7 +300,19 @@ def handle_document_message(message, sender_number, session_data):
         # --- MODIFIED DOCUMENT LOGIC END ---
 
         # --- FIX START ---
-        # The fix for the PDF to Word conversion logic is placed here.
+        if simple_state == "awaiting_pdf_to_text":
+            downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+            if not downloaded_path:
+                send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
+                return
+
+            send_message(sender_number, "🔄 Extracting text from your PDF...")
+            extracted_text = get_text_from_file(downloaded_path, mime_type)
+            response = extracted_text if extracted_text else "❌ Could not find any readable text in the PDF."
+            send_message(sender_number, response)
+            set_user_session(sender_number, None)
+            return
+
         if simple_state == "awaiting_pdf_to_docx":
             downloaded_path, mime_type = download_media_from_whatsapp(media_id)
             if not downloaded_path:
