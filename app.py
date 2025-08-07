@@ -339,6 +339,9 @@ def handle_document_message(message, sender_number, session_data):
                 # Use pypandoc instead of pdf2docx for conversion
                 pypandoc.convert_file(downloaded_path, 'docx', outputfile=output_docx_path)
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+            except pypandoc.PandocMissingError as e:
+                print(f"❌ PDF to Word conversion error: {e}")
+                send_message(sender_number, "❌ Conversion failed: The required 'pandoc' program is not installed on the server. Please install it to enable PDF to Word conversion.")
             except Exception as e:
                 print(f"❌ PDF to Word conversion error: {e}")
                 send_message(sender_number, "❌ Sorry, the PDF to Word conversion failed. The file may be corrupted or in an unsupported format.")
