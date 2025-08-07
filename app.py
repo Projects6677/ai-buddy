@@ -805,9 +805,10 @@ def send_test_briefing(developer_number):
                 email_summary = "No important updates found."
 
     template_name = "daily_briefing_v2"
+    # In send_test_briefing function in app.py
     components = [
-        {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
-        {"type": "body", "parameters": [
+    # The header has been removed for this test
+            {"type": "body", "parameters": [
             {"type": "text", "text": quote},
             {"type": "text", "text": email_summary},
             {"type": "text", "text": weather}
