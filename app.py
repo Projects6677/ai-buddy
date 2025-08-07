@@ -393,7 +393,7 @@ def handle_text_message(user_text, sender_number, state):
             return
         
         count = count_users_in_db()
-        stats_message = f"� *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
         send_message(sender_number, stats_message)
         return
 
@@ -638,7 +638,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
@@ -768,14 +768,13 @@ def send_daily_briefing():
                     email_summary = "No important updates found."
         
         template_name = "daily_briefing_v2"
-        # In send_test_briefing function in app.py
-         components = [
-    # The header has been removed for this test
-             {"type": "body", "parameters": [
-             {"type": "text", "text": quote},
-             {"type": "text", "text": email_summary},
-             {"type": "text", "text": weather}
-          ]}
+        # The header has been removed to diagnose the "400 Bad Request" error.
+        components = [
+            {"type": "body", "parameters": [
+                {"type": "text", "text": quote},
+                {"type": "text", "text": email_summary},
+                {"type": "text", "text": weather}
+            ]}
         ]
         
         send_template_message(user_id, template_name, components)
@@ -806,10 +805,9 @@ def send_test_briefing(developer_number):
                 email_summary = "No important updates found."
 
     template_name = "daily_briefing_v2"
-    # In send_test_briefing function in app.py
+    # The header has been removed to diagnose the "400 Bad Request" error.
     components = [
-    # The header has been removed for this test
-            {"type": "body", "parameters": [
+        {"type": "body", "parameters": [
             {"type": "text", "text": quote},
             {"type": "text", "text": email_summary},
             {"type": "text", "text": weather}
