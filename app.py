@@ -768,13 +768,14 @@ def send_daily_briefing():
                     email_summary = "No important updates found."
         
         template_name = "daily_briefing_v2"
-        components = [
-            {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
-            {"type": "body", "parameters": [
-                {"type": "text", "text": quote},
-                {"type": "text", "text": email_summary},
-                {"type": "text", "text": weather}
-            ]}
+        # In send_test_briefing function in app.py
+         components = [
+    # The header has been removed for this test
+             {"type": "body", "parameters": [
+             {"type": "text", "text": quote},
+             {"type": "text", "text": email_summary},
+             {"type": "text", "text": weather}
+          ]}
         ]
         
         send_template_message(user_id, template_name, components)
