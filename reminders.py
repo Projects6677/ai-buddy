@@ -3,20 +3,20 @@ from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 import pytz
 from messaging import send_template_message
-from grok_ai import parse_reminder_with_grok
+# REMOVED: No longer importing from grok_ai
+# from grok_ai import parse_reminder_with_grok 
 from google_calendar_integration import create_google_calendar_event
 
-# The separate, non-functional scheduler instance has been REMOVED from this file.
-
-def schedule_reminder(msg, user, get_creds_func, scheduler):
+# MODIFICATION: The function now accepts task and timestamp_str directly
+def schedule_reminder(task, timestamp_str, user, get_creds_func, scheduler):
     """
     Schedules a reminder on WhatsApp and optionally on Google Calendar.
-    It now receives the main scheduler instance from app.py.
     """
-    task, timestamp_str = parse_reminder_with_grok(msg)
+    # REMOVED: The parsing is now done in app.py by the intent router
+    # task, timestamp_str = parse_reminder_with_grok(msg)
 
     if not timestamp_str:
-        return "❌ I couldn't understand that. Please try phrasing your reminder differently."
+        return "❌ I couldn't understand the time for the reminder. Please try being more specific."
 
     if not task:
         task = "Reminder" # Default task if AI can't find one
@@ -30,7 +30,6 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
 
         now = datetime.now(tz)
         
-        # If the parsed time is in the past on the same day, assume it's for the next day
         if run_time < now:
             if run_time.date() == now.date():
                 run_time += timedelta(days=1)
@@ -46,7 +45,6 @@ def schedule_reminder(msg, user, get_creds_func, scheduler):
             }]
         }]
 
-        # This now uses the main scheduler passed in from app.py, fixing the bug
         scheduler.add_job(
             func=send_template_message,
             trigger='date',
