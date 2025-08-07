@@ -28,7 +28,7 @@ from google.auth.transport.requests import Request
 from currency import convert_currency
 from grok_ai import (
     route_user_intent,
-    get_chat_response,  # Updated function name for conversational memory
+    get_chat_response,
     correct_grammar_with_grok,
     analyze_email_subject,
     edit_email_body,
@@ -40,7 +40,10 @@ from grok_ai import (
     get_conversational_weather
 )
 from email_sender import send_email
-from services import get_daily_quote, get_on_this_day in history
+# --- FIX START ---
+# Corrected the import statement to use the correct function name.
+from services import get_daily_quote, get_on_this_day_in_history
+# --- FIX END ---
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -102,7 +105,7 @@ def get_all_users_from_db():
 def delete_all_users_from_db():
     return users_collection.delete_many({})
 
-def count_users in db():
+def count_users_in_db():
     return users_collection.count_documents({})
 
 def save_credentials_to_db(sender_number, credentials):
@@ -503,11 +506,9 @@ def handle_text_message(user_text, sender_number, session_data):
     # --- END RESTORED & UPDATED EMAIL FLOW LOGIC ---
 
     if current_state:
-        # --- FIX START ---
         if current_state == "awaiting_pdf_to_docx":
             send_message(sender_number, "Please upload a PDF file to convert to Word.")
             return
-        # --- FIX END ---
         
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
@@ -533,7 +534,7 @@ def handle_text_message(user_text, sender_number, session_data):
             return
         elif current_state == "awaiting_name":
             name = user_text.split()[0].title()
-            create_or_update_user in db(sender_number, {"name": name, "expenses": [], "is_google_connected": False})
+            create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False})
             set_user_session(sender_number, None)
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
             time.sleep(1)
@@ -717,7 +718,7 @@ def convert_text_to_word(text):
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
     user_data = get_user_from_db(sender_number)
     if not user_data:
-        create_or_update_user in db(sender_number, {"name": "User", "expenses": [], "is_google_connected": False})
+        create_or_update_user_in_db(sender_number, {"name": "User", "expenses": [], "is_google_connected": False})
 
     try:
         expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
@@ -762,7 +763,10 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_day in history()
+    # --- FIX START ---
+    # Corrected the function call.
+    history_fact = get_on_this_day_in_history()
+    # --- FIX END ---
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -794,7 +798,10 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_day in history()
+    # --- FIX START ---
+    # Corrected the function call.
+    history_fact = get_on_this_day_in_history()
+    # --- FIX END ---
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
