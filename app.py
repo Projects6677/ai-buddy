@@ -638,7 +638,7 @@ def handle_text_message(user_text, sender_number, state):
             response_text = "🏙️ Enter a city or location to get the current weather."
         elif user_text == "7":
             user_sessions[sender_number] = "awaiting_currency_conversion"
-            response_text = "� *Currency Converter*\n\nAsk me to convert currencies naturally!"
+            response_text = "💱 *Currency Converter*\n\nAsk me to convert currencies naturally!"
         elif user_text == "8":
             creds = get_credentials_from_db(sender_number)
             if creds:
@@ -789,20 +789,12 @@ def send_test_briefing(developer_number):
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
 
-    quote = get_daily_quote()
-    weather = get_conversational_weather()
-    user_name = user.get("name", "Developer")
-    greeting = get_smart_greeting(user_name)
-
-    email_summary = "Not connected."
-    if user.get("is_google_connected"):
-        creds = get_credentials_from_db(developer_number)
-        if creds:
-            summary = get_email_summary(creds)
-            if summary:
-                email_summary = summary
-            else:
-                email_summary = "No important updates found."
+    # --- MODIFICATION START ---
+    # Using hardcoded values to isolate the template issue.
+    quote = "Test 1"
+    email_summary = "Test 2"
+    weather = "Test 3"
+    # --- MODIFICATION END ---
 
     template_name = "daily_briefing_v2"
     # The header has been removed to diagnose the "400 Bad Request" error.
