@@ -238,7 +238,7 @@ def handle_document_message(message, sender_number, session_data):
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
 
-    downloaded_path = None # Initialize path to None
+    downloaded_path = None
     try:
         if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
             filename = message.get('document', {}).get('filename', 'attached_file')
@@ -314,7 +314,6 @@ def handle_document_message(message, sender_number, session_data):
             response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
         send_message(sender_number, response)
     finally:
-        # --- MODIFICATION: GUARANTEED FILE CLEANUP ---
         if downloaded_path and os.path.exists(downloaded_path):
             os.remove(downloaded_path)
 
@@ -327,11 +326,10 @@ def handle_text_message(user_text, sender_number, session_data):
 
     # --- 1. Handle state-based (multi-step) conversations first ---
     if current_state:
-        # --- MODIFICATION START: FIX FOR DOCUMENT Q&A ---
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
-                handle_text_message(user_text, sender_number, None) # Re-process as new command
+                handle_text_message(user_text, sender_number, None)
                 return
             
             doc_text = session_data.get("document_text")
@@ -340,7 +338,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, response)
             send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
             return
-        # --- MODIFICATION END ---
 
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
@@ -395,7 +392,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, name)
             return
 
-        # Handle complex (dictionary-based) states like email
         if isinstance(session_data, dict):
             if current_state == "awaiting_email_recipient":
                 recipients = [email.strip() for email in user_text.split(',')]
@@ -407,7 +403,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 else:
                     send_message(sender_number, "⚠️ I couldn't find any valid email addresses. Please try again.")
                 return
-            # ... (The rest of the email logic from the previous full code goes here) ...
+            # ... (The rest of the email logic can be added here following the same pattern) ...
         
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
@@ -426,6 +422,9 @@ def handle_text_message(user_text, sender_number, session_data):
 
     # --- 3. Handle explicit menu button presses ---
     if user_text == "1":
+        # This is now handled by the intent router for natural language, 
+        # but we can keep it for direct button presses.
+        # Let's ask the user for the reminder text directly.
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
