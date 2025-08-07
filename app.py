@@ -324,6 +324,32 @@ def handle_text_message(user_text, sender_number, session_data):
     
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
+    # --- START OF THE FIX ---
+    # This block now handles the follow-up message when the user is in the "awaiting_reminder_text" state.
+    if current_state == "awaiting_reminder_text":
+        send_message(sender_number, "🤖 Processing your reminder...")
+        
+        # We route the user's message to the AI to extract the reminder details
+        intent_data = route_user_intent(user_text)
+        intent = intent_data.get("intent")
+        entities = intent_data.get("entities")
+        
+        response_text = ""
+        if intent == "set_reminder":
+            task = entities.get("task")
+            timestamp = entities.get("timestamp")
+            # Call the reminder scheduling function with the extracted data
+            response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
+        else:
+            # If the AI can't parse it as a reminder, tell the user
+            response_text = "❌ I couldn't understand that as a reminder. Please try again with a specific time and task."
+
+        send_message(sender_number, response_text)
+        # Clear the session state to allow for new commands
+        set_user_session(sender_number, None)
+        return
+    # --- END OF THE FIX ---
+
     if current_state:
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
