@@ -9,7 +9,10 @@ import json
 import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
-from pdf2docx import Converter
+# --- FIX START ---
+# Removed Converter from pdf2docx
+import pypandoc
+# --- FIX END ---
 import fitz  # PyMuPDF
 import pytz
 from docx import Document
@@ -333,9 +336,8 @@ def handle_document_message(message, sender_number, session_data):
             send_message(sender_number, "🔄 Converting your PDF to a Word document...")
             output_docx_path = downloaded_path + ".docx"
             try:
-                cv = Converter(downloaded_path)
-                cv.convert(output_docx_path, start=0, end=None)
-                cv.close()
+                # Use pypandoc instead of pdf2docx for conversion
+                pypandoc.convert_file(downloaded_path, 'docx', outputfile=output_docx_path)
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
             except Exception as e:
                 print(f"❌ PDF to Word conversion error: {e}")
@@ -841,7 +843,7 @@ def send_update_notification_to_all_users(feature_list):
         print("ADMIN_SECRET_KEY is not set. Cannot send notifications.")
         return
     print("--- Sending update notifications to all users ---")
-    all_users = list(get_all_users in db())
+    all_users = list(get_all_users_from_db())
     if not all_users:
         print("No users found, skipping notifications.")
         return
