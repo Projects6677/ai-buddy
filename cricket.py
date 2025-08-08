@@ -25,26 +25,45 @@ def get_live_cricket_score():
         response.raise_for_status()
         data = response.json()
 
-        live_matches = [m for m in data if m.get("match_status") == "in progress"]
+        # Find the first ongoing match. If none, find the most recent completed match.
+        target_match = None
+        for m in data:
+            if m.get("match_status") == "in progress":
+                target_match = m
+                break
+        
+        if not target_match and data:
+            # Sort by date to get the most recent completed match
+            data.sort(key=lambda m: m.get("date_time", ""), reverse=True)
+            for m in data:
+                if m.get("match_status") == "completed":
+                    target_match = m
+                    break
 
-        if not live_matches:
-            return "❌ No live cricket matches found at the moment."
+        if not target_match:
+            return "❌ No live or recently completed cricket matches found at the moment."
         
-        # Taking the first live match for the example
-        match = live_matches[0]
-        match_title = match.get("title", "Live Match")
+        match_title = target_match.get("title", "Live Match")
         
-        team1_name = match.get("teams", {}).get("team1", {}).get("name")
-        team2_name = match.get("teams", {}).get("team2", {}).get("name")
+        team1_name = target_match.get("teams", {}).get("team1", {}).get("name")
+        team2_name = target_match.get("teams", {}).get("team2", {}).get("name")
         
-        team1_score = match.get("teams", {}).get("team1", {}).get("score", "N/A")
-        team2_score = match.get("teams", {}).get("team2", {}).get("score", "N/A")
+        team1_score = target_match.get("teams", {}).get("team1", {}).get("score", "N/A")
+        team2_score = target_match.get("teams", {}).get("team2", {}).get("score", "N/A")
         
-        response_text = f"🏏 *Live Cricket Score: {match_title}*\n\n"
+        match_status = target_match.get('match_status')
+        
+        if match_status == 'in progress':
+            response_text = f"🏏 *Live Cricket Score: {match_title}*\n\n"
+        elif match_status == 'completed':
+            response_text = f"✅ *Completed Match: {match_title}*\n\n"
+        else:
+            response_text = f"🏏 *Match Update: {match_title}*\n\n"
+            
         response_text += f"*{team1_name}*: {team1_score}\n"
         response_text += f"*{team2_name}*: {team2_score}\n"
-        response_text += f"\n_Status: {match.get('match_status')}_"
-
+        response_text += f"\n_Status: {match_status}_"
+        
         return response_text
 
     except requests.exceptions.RequestException as e:
