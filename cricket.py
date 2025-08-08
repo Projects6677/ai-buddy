@@ -5,12 +5,16 @@ import os
 import time
 
 CRICAPI_URL = "https://api.cricapi.com/v1"
-API_KEY = "c902ce72-4dc3-4ef2-9a30-5ea51b1da158"
+API_KEY = os.getenv("CRICAPI_KEY")
 
 def get_matches_from_api():
     """
     Fetches all available cricket matches from CricAPI.
     """
+    if not API_KEY:
+        print("❌ Error: CRICAPI_KEY is not configured.")
+        return None
+
     url = f"{CRICAPI_URL}/currentMatches?apikey={API_KEY}&offset=0"
     try:
         response = requests.get(url, timeout=10)
@@ -25,6 +29,10 @@ def get_match_score(match_id):
     """
     Fetches the score for a specific match ID from CricAPI.
     """
+    if not API_KEY:
+        print("❌ Error: CRICAPI_KEY is not configured.")
+        return None
+
     url = f"{CRICAPI_URL}/cricScore?apikey={API_KEY}&id={match_id}"
     try:
         response = requests.get(url, timeout=10)
