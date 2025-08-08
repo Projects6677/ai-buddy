@@ -10,8 +10,8 @@ import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 # --- FIX START ---
+# Removed Converter from pdf2docx
 import pypandoc
-# Removed the incorrect import of `exceptions`
 # --- FIX END ---
 import fitz  # PyMuPDF
 import pytz
