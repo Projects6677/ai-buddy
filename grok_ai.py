@@ -35,12 +35,13 @@ def route_user_intent(text):
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
        - "entities": {{"task": "The thing to be reminded of", "timestamp": "The exact time in YYYY-MM-DD HH:MM:SS format"}}
-       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": [{{"task": "call the doctor", "timestamp": "YYYY-MM-DD 16:00:00"}}]}}
+       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "timestamp": "YYYY-MM-DD 16:00:00"}}}}
 
     2. "log_expense":
        - Triggered by statements about spending money.
        - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD_or_null"}}
        - Example: "spent 500 on groceries at d-mart" -> {{"intent": "log_expense", "entities": [{{"cost": 500, "item": "groceries", "place": "d-mart", "timestamp": null}}]}}
+       - Example: "i spent 100rs at canteen today for lunch" -> {{"intent": "log_expense", "entities": [{{"cost": 100, "item": "lunch", "place": "canteen", "timestamp": "YYYY-MM-DD"}}]}}
 
     3. "convert_currency":
        - Triggered by requests to convert currencies.
