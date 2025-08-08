@@ -381,7 +381,7 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "🛠 Sending you a test briefing now...")
         send_test_briefing(sender_number)
         return
-
+    
     # If a menu/developer command was not sent, handle based on state
     if current_state:
         if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
@@ -521,11 +521,40 @@ def handle_text_message(user_text, sender_number, session_data):
                     send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
                 return
         
-        # Fallback for unrecognized state or text input
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
         return
     
+    if user_text_lower == ".nuke":
+        set_user_session(sender_number, "awaiting_nuke_confirmation")
+        send_message(sender_number, "⚠️ WARNING! This will delete all user data from the database. Are you absolutely sure? Reply with `yes` to confirm.")
+        return
+    elif user_text_lower == ".stats":
+        user_count = count_users_in_db()
+        send_message(sender_number, f"📊 There are currently *{user_count}* users in the database.")
+        return
+    elif user_text_lower.startswith(".dev"):
+        message_to_send = user_text.strip()[4:].strip()
+        if message_to_send:
+            send_message_to_all_users(message_to_send)
+            send_message(sender_number, "✅ Message scheduled to be sent to all users.")
+        else:
+            send_message(sender_number, "Please provide a message after '.dev'. Usage: `.dev Your message here`")
+        return
+    elif user_text_lower == ".test":
+        send_message(sender_number, "🛠 Sending you a test briefing now...")
+        send_test_briefing(sender_number)
+        return
+    
+    if user_text_lower in greetings:
+        user_data = get_user_from_db(sender_number)
+        if not user_data:
+            set_user_session(sender_number, "awaiting_name")
+            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
+        else:
+            send_welcome_message(sender_number, user_data.get("name"))
+        return
+
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
