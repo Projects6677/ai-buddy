@@ -109,7 +109,7 @@ def send_interactive_menu(to, name):
                             {"id": "2", "title": "Fix Grammar", "description": "Correct spelling and grammar."},
                             {"id": "3", "title": "Ask AI Anything", "description": "Chat with the AI assistant."},
                             {"id": "4", "title": "File/Text Conversion", "description": "Convert between PDF and Word."},
-                            {"id": "5", "title": "Live Cricket Score", "description": "Get live cricket scores."},
+                            {"id": "5", "title": "Translator", "description": "Translate text between languages."},
                             {"id": "6", "title": "Weather Forecast", "description": "Get the current weather."},
                             {"id": "7", "title": "Currency Converter", "description": "Convert between currencies."},
                             {"id": "8", "title": "AI Email Assistant", "description": "Get help writing professional emails."}
@@ -121,55 +121,6 @@ def send_interactive_menu(to, name):
         requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
-
-def send_cricket_matches_menu(to, matches):
-    """Sends an interactive list menu with available cricket matches."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    if not matches:
-        send_message(to, "❌ No live or recently completed matches found.")
-        return
-
-    match_rows = []
-    for match in matches:
-        match_id = match.get("id")
-        match_title = match.get("name") # Use "name" from CricAPI response
-        match_status = match.get("status")
-        description = f"Status: {match_status}"
-        match_rows.append({"id": f"cricket_match_{match_id}", "title": match_title, "description": description})
-    
-    # Add a refresh button at the bottom
-    match_rows.append({"id": "cricket_refresh", "title": "🔄 Refresh List", "description": "Get the latest match list."})
-
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {"type": "text", "text": "Live Cricket Scores 🏏"},
-            "body": {"text": "Please select a match from the list below to get the score."},
-            "footer": {"text": "Choose a match"},
-            "action": {
-                "button": "Matches",
-                "sections": [
-                    {
-                        "title": "Available Matches",
-                        "rows": match_rows
-                    }
-                ]
-            }
-        }
-    }
-    try:
-        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send cricket match menu to {to}: {e.response.text if e.response else e}")
-
 
 def send_conversion_menu(to):
     """Sends an interactive LIST menu for file conversions."""
