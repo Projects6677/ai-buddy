@@ -42,7 +42,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job, schedule_email
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_file_to_user
 from document_processor import get_text_from_file
 from weather import get_weather
 
@@ -578,7 +578,7 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
-    elif user_text_lower in ["excel sheet", "excel", "give excel"]:
+    elif user_text_lower in ["excel sheet", "excel", "give excel", "export my expenses as an excel sheet"]:
         user_data = get_user_from_db(sender_number)
         if not user_data or "expenses" not in user_data or not user_data["expenses"]:
             send_message(sender_number, "❌ Sorry, I can't find any expenses to export.")
@@ -656,7 +656,42 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     else:
-        send_message(sender_number, "🤔 I couldn't understand that. Please try a different command or type `menu`.")
+        # Route to AI only if not in a specific state and intent is not recognized
+        if not current_state:
+            intent_data = route_user_intent(user_text)
+            intent = intent_data.get("intent")
+            entities = intent_data.get("entities")
+            response_text = ""
+            if intent == "set_reminder":
+                task = entities.get("task")
+                timestamp = entities.get("timestamp")
+                response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
+            elif intent == "log_expense":
+                if entities:
+                    # FIX: Handles multiple expense entries in a single message.
+                    confirmations = [log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp')) for e in entities if isinstance(e.get('cost'), (int, float))]
+                    response_text = "\n".join(confirmations)
+                else:
+                    response_text = "Sorry, I couldn't understand that as an expense."
+            elif intent == "convert_currency":
+                if entities:
+                    results = [convert_currency(c.get('amount'), c.get('from_currency'), c.get('to_currency')) for c in entities]
+                    response_text = "\n\n".join(results)
+                else:
+                    response_text = "Sorry, I couldn't understand that currency conversion."
+            elif intent == "get_weather":
+                location = entities.get("location", "Vijayawada")
+                response_text = get_weather(location)
+            elif intent == "general_query":
+                response_text, _ = get_chat_response(user_text, [], None)
+            else:
+                response_text = "🤔 I'm not sure how to handle that. Please try rephrasing, or type *menu*."
+            
+            if response_text:
+                send_message(sender_number, response_text)
+            return
+        
+        send_message(sender_number, "I'm not sure what to do with that. Let's start over. Please type `menu`.")
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
