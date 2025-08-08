@@ -4,71 +4,56 @@ import json
 import os
 import time
 
-def get_live_cricket_score():
+CRICAPI_URL = "https://api.cricapi.com/v1"
+API_KEY = "TESTKEY0273"  # Use for development. Get your own key by signing up on cricapi.com
+
+def get_matches_from_api():
     """
-    Fetches a live cricket score from the RapidAPI 'Free Cricbuzz Cricket API'.
+    Fetches all available cricket matches from CricAPI.
     """
-    RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
-    RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
-
-    if not RAPIDAPI_KEY or not RAPIDAPI_HOST:
-        return "❌ Error: RapidAPI keys are not configured."
-
-    url = "https://free-cricbuzz-cricket-api.p.rapidapi.com/matches"
-    headers = {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": RAPIDAPI_HOST
-    }
-
+    url = f"{CRICAPI_URL}/matches?apikey={API_KEY}"
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-
-        # Find the first ongoing match. If none, find the most recent completed match.
-        target_match = None
-        for m in data:
-            if m.get("match_status") == "in progress":
-                target_match = m
-                break
-        
-        if not target_match and data:
-            # Sort by date to get the most recent completed match
-            data.sort(key=lambda m: m.get("date_time", ""), reverse=True)
-            for m in data:
-                if m.get("match_status") == "completed":
-                    target_match = m
-                    break
-
-        if not target_match:
-            return "❌ No live or recently completed cricket matches found at the moment."
-        
-        match_title = target_match.get("title", "Live Match")
-        
-        team1_name = target_match.get("teams", {}).get("team1", {}).get("name")
-        team2_name = target_match.get("teams", {}).get("team2", {}).get("name")
-        
-        team1_score = target_match.get("teams", {}).get("team1", {}).get("score", "N/A")
-        team2_score = target_match.get("teams", {}).get("team2", {}).get("score", "N/A")
-        
-        match_status = target_match.get('match_status')
-        
-        if match_status == 'in progress':
-            response_text = f"🏏 *Live Cricket Score: {match_title}*\n\n"
-        elif match_status == 'completed':
-            response_text = f"✅ *Completed Match: {match_title}*\n\n"
-        else:
-            response_text = f"🏏 *Match Update: {match_title}*\n\n"
-            
-        response_text += f"*{team1_name}*: {team1_score}\n"
-        response_text += f"*{team2_name}*: {team2_score}\n"
-        response_text += f"\n_Status: {match_status}_"
-        
-        return response_text
-
+        return data.get("data", [])
     except requests.exceptions.RequestException as e:
-        print(f"RapidAPI request error: {e}")
-        return "❌ Failed to fetch live cricket scores. Please check your API keys or connection."
-    except Exception as e:
-        print(f"Error processing cricket data: {e}")
-        return "❌ An unexpected error occurred while fetching cricket scores."
+        print(f"CricAPI match list error: {e}")
+        return None
+
+def get_match_score(match_id):
+    """
+    Fetches the score for a specific match ID from CricAPI.
+    """
+    url = f"{CRICAPI_URL}/matchscore?apikey={API_KEY}&id={match_id}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("data", {})
+    except requests.exceptions.RequestException as e:
+        print(f"CricAPI match score error: {e}")
+        return None
+
+def format_score_response(match_data):
+    """
+    Formats the match data into a readable string.
+    """
+    if not match_data:
+        return "❌ An unexpected error occurred. Please try again later."
+    
+    match_name = match_data.get("name", "Match")
+    match_status = match_data.get("status", "Status not available")
+    
+    response_text = f"🏏 *Match: {match_name}*\n\n"
+    
+    for inning in match_data.get("scorecard", []):
+        team = inning.get("inning", "N/A")
+        score_text = ""
+        for score in inning.get("score", []):
+            score_text += f"{score.get('r')}/{score.get('w')} ({score.get('o')} Overs)\n"
+        
+        response_text += f"*{team}*: {score_text}\n"
+
+    response_text += f"\n_Status: {match_status}_"
+    return response_text
