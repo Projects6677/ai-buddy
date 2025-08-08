@@ -255,7 +255,6 @@ def handle_document_message(message, sender_number, session_data):
     try:
         simple_state = session_data.get("state") if isinstance(session_data, dict) else session_data
         
-        # --- RESTORED EMAIL ATTACHMENT LOGIC ---
         if simple_state == "awaiting_email_attachment" or simple_state == "awaiting_more_attachments":
             filename = message.get('document', {}).get('filename', 'attached_file')
             send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
@@ -271,10 +270,7 @@ def handle_document_message(message, sender_number, session_data):
             else:
                 send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
             return
-        # --- END RESTORED EMAIL ATTACHMENT LOGIC ---
-
-        # --- MODIFIED DOCUMENT LOGIC START ---
-        # Document handling is now integrated into the "awaiting_ai" state.
+        
         if simple_state == "awaiting_ai":
             send_message(sender_number, "📄 Got your file! Reading document into memory...")
             downloaded_path, mime_type = download_media_from_whatsapp(media_id)
@@ -287,7 +283,6 @@ def handle_document_message(message, sender_number, session_data):
                 send_message(sender_number, "❌ I couldn't find any readable text in that file.")
                 return
             
-            # Update the user's session with the document text and a new state
             new_session_data = {
                 "state": "awaiting_ai",
                 "document_text": extracted_text,
@@ -297,7 +292,6 @@ def handle_document_message(message, sender_number, session_data):
             
             send_message(sender_number, "✅ Document loaded! You can now ask me questions about it. \n\n_Type `menu` to clear the document and exit this mode._")
             return
-        # --- MODIFIED DOCUMENT LOGIC END ---
 
         if simple_state == "awaiting_pdf_to_text":
             downloaded_path, mime_type = download_media_from_whatsapp(media_id)
@@ -387,29 +381,11 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "🛠 Sending you a test briefing now...")
         send_test_briefing(sender_number)
         return
-    
+
     # If a menu/developer command was not sent, handle based on state
     if current_state:
         if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
-            # This handles text input while in a file conversion state
-            if user_text_lower in menu_commands:
-                set_user_session(sender_number, None)
-                user_data = get_user_from_db(sender_number)
-                send_welcome_message(sender_number, user_data.get("name", "User"))
-                return
-            elif user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
-                set_user_session(sender_number, None)
-                handle_text_message(user_text, sender_number, session_data)
-                return
-            
-            if current_state == "awaiting_pdf_to_docx":
-                send_message(sender_number, "Please upload a PDF file to convert to Word.")
-            elif current_state == "awaiting_pdf_to_text":
-                send_message(sender_number, "Please upload the PDF file you want to convert to text.")
-            elif current_state == "awaiting_text_to_pdf":
-                send_message(sender_number, "Please send me the text you want to convert to a PDF.")
-            elif current_state == "awaiting_text_to_word":
-                send_message(sender_number, "Please send me the text you want to convert to a Word file.")
+            send_message(sender_number, "Please upload a file or send text, depending on the conversion you selected.")
             return
 
         if current_state == "awaiting_nuke_confirmation":
@@ -448,7 +424,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, response_text)
             return
 
-        # --- RESTORED & UPDATED EMAIL FLOW LOGIC START ---
         if isinstance(session_data, dict):
             state = session_data.get("state")
 
@@ -550,39 +525,7 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
         return
-
-    # --- NEW CODE: Handling the special developer commands ---
-    if user_text_lower == ".nuke":
-        set_user_session(sender_number, "awaiting_nuke_confirmation")
-        send_message(sender_number, "⚠️ WARNING! This will delete all user data from the database. Are you absolutely sure? Reply with `yes` to confirm.")
-        return
-    elif user_text_lower == ".stats":
-        user_count = count_users_in_db()
-        send_message(sender_number, f"📊 There are currently *{user_count}* users in the database.")
-        return
-    elif user_text_lower.startswith(".dev"):
-        message_to_send = user_text.strip()[4:].strip()
-        if message_to_send:
-            send_message_to_all_users(message_to_send)
-            send_message(sender_number, "✅ Message scheduled to be sent to all users.")
-        else:
-            send_message(sender_number, "Please provide a message after '.dev'. Usage: `.dev Your message here`")
-        return
-    elif user_text_lower == ".test":
-        send_message(sender_number, "🛠 Sending you a test briefing now...")
-        send_test_briefing(sender_number)
-        return
-
-    if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
-        set_user_session(sender_number, None)
-        user_data = get_user_from_db(sender_number)
-        if not user_data:
-            set_user_session(sender_number, "awaiting_name")
-            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
-        else:
-            send_welcome_message(sender_number, user_data.get("name"))
-        return
-
+    
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
@@ -605,7 +548,7 @@ def handle_text_message(user_text, sender_number, session_data):
         return
     elif user_text == "6":
         send_message(sender_number, "☁️ Fetching the current weather...")
-        location = "Vijayawada" # Default city
+        location = "Vijayawada"
         response_text = get_weather(location)
         send_message(sender_number, response_text)
         return
@@ -649,34 +592,28 @@ def handle_text_message(user_text, sender_number, session_data):
         task = entities.get("task")
         timestamp = entities.get("timestamp")
         response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
-
     elif intent == "log_expense":
         if entities:
             confirmations = [log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp')) for e in entities if isinstance(e.get('cost'), (int, float))]
             response_text = "\n".join(confirmations)
         else:
             response_text = "Sorry, I couldn't understand that as an expense."
-
     elif intent == "convert_currency":
         if entities:
             results = [convert_currency(c.get('amount'), c.get('from_currency'), c.get('to_currency')) for c in entities]
             response_text = "\n\n".join(results)
         else:
             response_text = "Sorry, I couldn't understand that currency conversion."
-    
     elif intent == "get_weather":
         location = entities.get("location", "Vijayawada")
         response_text = get_weather(location)
-        
     elif intent == "general_query":
         response_text, _ = get_chat_response(user_text, [], None)
-        
     else:
         response_text = "🤔 I'm not sure how to handle that. Please try rephrasing, or type *menu*."
 
     if response_text:
         send_message(sender_number, response_text)
-
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_welcome_message(to, name):
