@@ -109,7 +109,7 @@ def send_interactive_menu(to, name):
                             {"id": "2", "title": "Fix Grammar", "description": "Correct spelling and grammar."},
                             {"id": "3", "title": "Ask AI Anything", "description": "Chat with the AI assistant."},
                             {"id": "4", "title": "File/Text Conversion", "description": "Convert between PDF and Word."},
-                            {"id": "5", "title": "Translator", "description": "Translate text between languages."},
+                            {"id": "5", "title": "Live Cricket Score", "description": "Get live cricket scores."},
                             {"id": "6", "title": "Weather Forecast", "description": "Get the current weather."},
                             {"id": "7", "title": "Currency Converter", "description": "Convert between currencies."},
                             {"id": "8", "title": "AI Email Assistant", "description": "Get help writing professional emails."}
