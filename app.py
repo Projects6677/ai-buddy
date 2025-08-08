@@ -580,8 +580,8 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        matches = get_matches_from_api()
-        send_cricket_matches_menu(sender_number, matches)
+        # Removed cricket logic, now sends a default message
+        send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     elif user_text == "6":
         send_message(sender_number, "☁️ Fetching the current weather...")
@@ -619,18 +619,10 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "📝 Please send me the text you want to convert to a Word file.")
         return
     elif user_text_lower == "cricket_refresh":
-        matches = get_matches_from_api()
-        send_cricket_matches_menu(sender_number, matches)
+        send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     elif user_text_lower.startswith("cricket_match_"):
-        match_id = user_text.replace("cricket_match_", "")
-        send_message(sender_number, "🏏 Fetching score...")
-        match_data = get_match_score(match_id)
-        if match_data:
-            response_text = format_score_response(match_data)
-        else:
-            response_text = "❌ Failed to fetch the score for that match."
-        send_message(sender_number, response_text)
+        send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     else:
         send_message(sender_number, "🤔 I couldn't understand that. Please try a different command or type `menu`.")
