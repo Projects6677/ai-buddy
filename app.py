@@ -488,7 +488,6 @@ def handle_text_message(user_text, sender_number, session_data):
                 intent_data = route_user_intent(user_text)
                 if intent_data.get("intent") == "set_reminder" and intent_data.get("entities", {}).get("timestamp"):
                     timestamp = intent_data["entities"]["timestamp"]
-                    send_message(sender_number, "🤖 Processing your request to schedule the email...")
                     response_text = schedule_email(
                         recipients=session_data["recipients"],
                         subject=session_data["subject"],
@@ -597,6 +596,7 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
+        # Removed cricket logic, now sends a default message
         send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     elif user_text == "6":
@@ -723,7 +723,7 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_day_in_history()
+    history_fact = get_on_this_dayin_history()
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -755,7 +755,7 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_day_in_history()
+    history_fact = get_on_this_dayin_history()
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
