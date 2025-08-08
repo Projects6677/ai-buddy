@@ -46,9 +46,7 @@ from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
-# --- FIX START ---
 from cricket import get_live_cricket_score
-# --- FIX END ---
 
 
 app = Flask(__name__)
@@ -532,10 +530,14 @@ def handle_text_message(user_text, sender_number, session_data):
         # --- FIX START ---
         if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
             # This handles text input while in a file conversion state
-            if user_text_lower in menu_commands or user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
+            if user_text_lower in menu_commands:
                 set_user_session(sender_number, None)
                 user_data = get_user_from_db(sender_number)
                 send_welcome_message(sender_number, user_data.get("name", "User"))
+                return
+            elif user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
+                set_user_session(sender_number, None)
+                handle_text_message(user_text, sender_number, session_data)
                 return
             
             # If not a recognized command, send the file upload/text prompt again.
@@ -639,8 +641,21 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        set_user_session(sender_number, "awaiting_translation")
-        send_message(sender_number, "🌍 *AI Translator Active!*\n\nHow can I help you translate today?")
+        # The interactive button for Live Cricket Score is id '5'.
+        send_message(sender_number, "🏏 Fetching the latest live cricket scores...")
+        response_text = get_live_cricket_score()
+        send_message(sender_number, response_text)
+        return
+    elif user_text == "6":
+        # The interactive button for Weather Forecast is id '6'.
+        send_message(sender_number, "☁️ Fetching the current weather...")
+        location = "Vijayawada" # Default city
+        response_text = get_weather(location)
+        send_message(sender_number, response_text)
+        return
+    elif user_text == "7":
+        set_user_session(sender_number, "awaiting_currency")
+        send_message(sender_number, "💱 *Currency Converter*\n\nWhat would you like to convert? (e.g., '100 USD to INR')")
         return
     elif user_text == "8":
         creds = get_credentials_from_db(sender_number)
@@ -667,7 +682,7 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_text_to_word")
         send_message(sender_number, "📝 Please send me the text you want to convert to a Word file.")
         return
-
+    
     send_message(sender_number, "🤖 Analyzing...")
     intent_data = route_user_intent(user_text)
     
@@ -702,7 +717,10 @@ def handle_text_message(user_text, sender_number, session_data):
     elif intent == "general_query":
         # Pass an empty list for chat history since it's a new conversation
         response_text, _ = get_chat_response(user_text, [], None)
-
+    
+    elif intent == "get_cricket_score":
+        response_text = get_live_cricket_score()
+        
     else:
         response_text = "🤔 I'm not sure how to handle that. Please try rephrasing, or type *menu*."
 
@@ -791,10 +809,7 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
-    # --- FIX START ---
-    # Corrected the function call.
     history_fact = get_on_this_day_in_history()
-    # --- FIX END ---
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -826,10 +841,7 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    # --- FIX START ---
-    # Corrected the function call.
     history_fact = get_on_this_day_in_history()
-    # --- FIX END ---
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
