@@ -42,10 +42,9 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_cricket_matches_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
-from cricket import get_matches_from_api, get_match_score, format_score_response
 
 
 app = Flask(__name__)
