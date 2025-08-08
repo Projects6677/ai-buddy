@@ -35,7 +35,7 @@ def route_user_intent(text):
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
        - "entities": {{"task": "The thing to be reminded of", "timestamp": "The exact time in YYYY-MM-DD HH:MM:SS format"}}
-       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "timestamp": "YYYY-MM-DD 16:00:00"}}}}
+       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": [{{"task": "call the doctor", "timestamp": "YYYY-MM-DD 16:00:00"}}]}}
 
     2. "log_expense":
        - Triggered by statements about spending money.
@@ -246,16 +246,3 @@ def edit_email_body(original_draft, edit_instruction):
     except Exception as e:
         print(f"Grok email editing error: {e}")
         return None
-
-def translate_with_grok(text):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
-    system_prompt = "You are a translation assistant. The user will provide text to be translated, and they will specify the target language. Your task is to provide the translation. Only return the translated text."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}], "temperature": 0.3 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        response.raise_for_status()
-        translated_text = response.json()["choices"][0]["message"]["content"].strip()
-        return f"🌍 Translated:\n\n_{translated_text}_"
-    except Exception as e:
-        print(f"Grok Translation error: {e}")
-        return "⚠️ Sorry, the translation service is currently unavailable."
