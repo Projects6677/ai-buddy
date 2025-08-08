@@ -5,13 +5,13 @@ import os
 import time
 
 CRICAPI_URL = "https://api.cricapi.com/v1"
-API_KEY = "TESTKEY0273"  # Use for development. Get your own key by signing up on cricapi.com
+API_KEY = "c902ce72-4dc3-4ef2-9a30-5ea51b1da158"
 
 def get_matches_from_api():
     """
     Fetches all available cricket matches from CricAPI.
     """
-    url = f"{CRICAPI_URL}/matches?apikey={API_KEY}"
+    url = f"{CRICAPI_URL}/currentMatches?apikey={API_KEY}&offset=0"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -25,7 +25,7 @@ def get_match_score(match_id):
     """
     Fetches the score for a specific match ID from CricAPI.
     """
-    url = f"{CRICAPI_URL}/matchscore?apikey={API_KEY}&id={match_id}"
+    url = f"{CRICAPI_URL}/cricScore?apikey={API_KEY}&id={match_id}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -47,13 +47,12 @@ def format_score_response(match_data):
     
     response_text = f"🏏 *Match: {match_name}*\n\n"
     
-    for inning in match_data.get("scorecard", []):
-        team = inning.get("inning", "N/A")
-        score_text = ""
-        for score in inning.get("score", []):
-            score_text += f"{score.get('r')}/{score.get('w')} ({score.get('o')} Overs)\n"
-        
-        response_text += f"*{team}*: {score_text}\n"
+    score = match_data.get("score", [])
+    if score:
+        for inning in score:
+            team = inning.get("inning", "N/A")
+            score_text = f"{inning.get('r')}/{inning.get('w')} ({inning.get('o')} Overs)"
+            response_text += f"*{team}*: {score_text}\n"
 
     response_text += f"\n_Status: {match_status}_"
     return response_text
