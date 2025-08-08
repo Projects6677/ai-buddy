@@ -6,61 +6,50 @@ import time
 
 def get_live_cricket_score():
     """
-    Fetches a live cricket score from a mock API.
-    In a real-world scenario, this would be replaced with a live sports API.
+    Fetches a live cricket score from the RapidAPI 'Free Cricbuzz Cricket API'.
     """
-    
-    # In a real application, you would make an API call like this:
-    # try:
-    #     api_key = os.getenv("CRICKET_API_KEY")
-    #     url = f"https://api.cricket-api.com/v1/live?apikey={api_key}"
-    #     response = requests.get(url, timeout=10)
-    #     response.raise_for_status()
-    #     data = response.json()
-    # except Exception as e:
-    #     print(f"Cricket API error: {e}")
-    #     return "❌ Failed to fetch live cricket scores."
+    RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+    RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
 
-    # --- MOCK DATA FOR DEMONSTRATION ---
-    mock_data = {
-        "status": "ok",
-        "data": {
-            "title": "India vs Australia - 2nd Test",
-            "match_status": "in progress",
-            "teams": ["India", "Australia"],
-            "current_inning": "Australia",
-            "score_card": {
-                "India": {"runs": 245, "wickets": 4, "overs": 40.2},
-                "Australia": {"runs": 120, "wickets": 10, "overs": 35.0}
-            },
-            "last_wicket": "Steve Smith, 12 runs"
-        }
+    if not RAPIDAPI_KEY or not RAPIDAPI_HOST:
+        return "❌ Error: RapidAPI keys are not configured."
+
+    url = "https://free-cricbuzz-cricket-api.p.rapidapi.com/matches"
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST
     }
-    # --- END MOCK DATA ---
 
     try:
-        data = mock_data.get("data", {})
-        title = data.get("title")
-        current_inning = data.get("current_inning")
-        score_card = data.get("score_card", {})
-        
-        if not title or not score_card:
-            return "❌ No live cricket match found at the moment."
-            
-        team1, team2 = data["teams"]
-        score1 = score_card.get(team1)
-        score2 = score_card.get(team2)
-        
-        response = f"🏏 *Live Cricket Score: {title}*\n\n"
-        if score1:
-            response += f"*{team1}*: {score1['runs']}/{score1['wickets']} ({score1['overs']} overs)\n"
-        if score2:
-            response += f"*{team2}*: {score2['runs']}/{score2['wickets']} ({score2['overs']} overs)\n"
-        
-        response += f"\n_Currently batting: {current_inning}_"
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
 
-        return response
+        live_matches = [m for m in data if m.get("match_status") == "in progress"]
 
+        if not live_matches:
+            return "❌ No live cricket matches found at the moment."
+        
+        # Taking the first live match for the example
+        match = live_matches[0]
+        match_title = match.get("title", "Live Match")
+        
+        team1_name = match.get("teams", {}).get("team1", {}).get("name")
+        team2_name = match.get("teams", {}).get("team2", {}).get("name")
+        
+        team1_score = match.get("teams", {}).get("team1", {}).get("score", "N/A")
+        team2_score = match.get("teams", {}).get("team2", {}).get("score", "N/A")
+        
+        response_text = f"🏏 *Live Cricket Score: {match_title}*\n\n"
+        response_text += f"*{team1_name}*: {team1_score}\n"
+        response_text += f"*{team2_name}*: {team2_score}\n"
+        response_text += f"\n_Status: {match.get('match_status')}_"
+
+        return response_text
+
+    except requests.exceptions.RequestException as e:
+        print(f"RapidAPI request error: {e}")
+        return "❌ Failed to fetch live cricket scores. Please check your API keys or connection."
     except Exception as e:
         print(f"Error processing cricket data: {e}")
         return "❌ An unexpected error occurred while fetching cricket scores."
