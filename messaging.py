@@ -158,3 +158,19 @@ def send_conversion_menu(to):
         requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send conversion menu to {to}: {e.response.text if e.response else e}")
+
+def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
+    """Sends a file to the user."""
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    with open(file_path, "rb") as f:
+        files = {'file': (os.path.basename(file_path), f, mime_type)}
+        data = {"messaging_product": "whatsapp"}
+        upload_response = requests.post(url, headers=headers, files=files, data=data)
+    if upload_response.status_code != 200:
+        print(f"Error uploading file: {upload_response.text}"); return
+    media_id = upload_response.json().get("id")
+    if not media_id: return
+    message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    payload = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "caption": caption}}
+    requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
