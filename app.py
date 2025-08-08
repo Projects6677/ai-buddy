@@ -42,10 +42,10 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_cricket_matches_menu
 from document_processor import get_text_from_file
 from weather import get_weather
-from cricket import get_live_cricket_score
+from cricket import get_matches_from_api, get_match_score, format_score_response
 
 
 app = Flask(__name__)
@@ -581,9 +581,8 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        send_message(sender_number, "🏏 Fetching live cricket scores...")
-        response_text = get_live_cricket_score()
-        send_message(sender_number, response_text)
+        matches = get_matches_from_api()
+        send_cricket_matches_menu(sender_number, matches)
         return
     elif user_text == "6":
         send_message(sender_number, "☁️ Fetching the current weather...")
@@ -620,8 +619,22 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_text_to_word")
         send_message(sender_number, "📝 Please send me the text you want to convert to a Word file.")
         return
-
-    send_message(sender_number, "🤔 I couldn't understand that. Please try a different command or type `menu`.")
+    elif user_text_lower == "cricket_refresh":
+        matches = get_matches_from_api()
+        send_cricket_matches_menu(sender_number, matches)
+        return
+    elif user_text_lower.startswith("cricket_match_"):
+        match_id = user_text.replace("cricket_match_", "")
+        send_message(sender_number, "🏏 Fetching score...")
+        match_data = get_match_score(match_id)
+        if match_data:
+            response_text = format_score_response(match_data)
+        else:
+            response_text = "❌ Failed to fetch the score for that match."
+        send_message(sender_number, response_text)
+        return
+    else:
+        send_message(sender_number, "🤔 I couldn't understand that. Please try a different command or type `menu`.")
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
