@@ -217,6 +217,7 @@ def webhook():
         if "messages" not in entry or not entry["messages"]: return "OK", 200
         message = entry["messages"][0]
         sender_number = message["from"]
+        # FIX: Get the most current session data from the database for every message
         session_data = get_user_session(sender_number)
         msg_type = message.get("type")
 
@@ -597,7 +598,9 @@ def handle_text_message(user_text, sender_number, session_data):
     elif user_text == "8":
         creds = get_credentials_from_db(sender_number)
         if creds:
-            set_user_session(sender_number, "awaiting_email_recipient")
+            # FIX: Ensure a dictionary is always used for the session to prevent errors
+            session_data = {"state": "awaiting_email_recipient"}
+            set_user_session(sender_number, session_data)
             send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
         else:
             send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
@@ -619,39 +622,7 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "📝 Please send me the text you want to convert to a Word file.")
         return
 
-    send_message(sender_number, "🤖 Analyzing...")
-    intent_data = route_user_intent(user_text)
-    
-    intent = intent_data.get("intent")
-    entities = intent_data.get("entities")
-    response_text = ""
-
-    if intent == "set_reminder":
-        task = entities.get("task")
-        timestamp = entities.get("timestamp")
-        response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
-    elif intent == "log_expense":
-        if entities:
-            confirmations = [log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp')) for e in entities if isinstance(e.get('cost'), (int, float))]
-            response_text = "\n".join(confirmations)
-        else:
-            response_text = "Sorry, I couldn't understand that as an expense."
-    elif intent == "convert_currency":
-        if entities:
-            results = [convert_currency(c.get('amount'), c.get('from_currency'), c.get('to_currency')) for c in entities]
-            response_text = "\n\n".join(results)
-        else:
-            response_text = "Sorry, I couldn't understand that currency conversion."
-    elif intent == "get_weather":
-        location = entities.get("location", "Vijayawada")
-        response_text = get_weather(location)
-    elif intent == "general_query":
-        response_text, _ = get_chat_response(user_text, [], None)
-    else:
-        response_text = "🤔 I'm not sure how to handle that. Please try rephrasing, or type *menu*."
-
-    if response_text:
-        send_message(sender_number, response_text)
+    send_message(sender_number, "🤔 I couldn't understand that. Please try a different command or type `menu`.")
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
