@@ -10,8 +10,8 @@ import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
 # --- FIX START ---
-# Removed Converter from pdf2docx
-import pypandoc
+# Reverted to using pdf2docx for conversion
+from pdf2docx import Converter
 # --- FIX END ---
 import fitz  # PyMuPDF
 import pytz
@@ -335,20 +335,19 @@ def handle_document_message(message, sender_number, session_data):
 
             send_message(sender_number, "🔄 Converting your PDF to a Word document...")
             output_docx_path = downloaded_path + ".docx"
+            # Moved state reset here to prevent the looping behavior
+            set_user_session(sender_number, None)
             try:
-                # Use pypandoc instead of pdf2docx for conversion
-                pypandoc.convert_file(downloaded_path, 'docx', outputfile=output_docx_path)
+                cv = Converter(downloaded_path)
+                cv.convert(output_docx_path, start=0, end=None)
+                cv.close()
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
-            except pypandoc.PandocError as e:
-                print(f"❌ PDF to Word conversion error: {e}")
-                send_message(sender_number, "❌ Conversion failed: The required 'pandoc' program is not installed on the server or the file is corrupted. Please install pandoc or try a different file.")
             except Exception as e:
                 print(f"❌ PDF to Word conversion error: {e}")
                 send_message(sender_number, "❌ Sorry, the PDF to Word conversion failed. The file may be corrupted or in an unsupported format.")
             finally:
                 if os.path.exists(downloaded_path): os.remove(downloaded_path)
                 if os.path.exists(output_docx_path): os.remove(output_docx_path)
-            set_user_session(sender_number, None)
             return
         # --- FIX END ---
         
@@ -528,20 +527,16 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if current_state:
         # --- FIX START ---
-        if current_state == "awaiting_pdf_to_docx":
-            # Check if the user is trying to exit the state with a command.
-            if user_text_lower in menu_commands:
+        if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text"]:
+            # This handles text input while in a file conversion state
+            if user_text_lower in menu_commands or user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
                 set_user_session(sender_number, None)
                 user_data = get_user_from_db(sender_number)
                 send_welcome_message(sender_number, user_data.get("name", "User"))
                 return
-            elif user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
-                set_user_session(sender_number, None)
-                handle_text_message(user_text, sender_number, session_data)
-                return
             
-            # If not a command, it's an unexpected text input, so we send an error message and return.
-            send_message(sender_number, "Please upload a PDF file to convert to Word.")
+            # If not a recognized command, send the file upload prompt again.
+            send_message(sender_number, "Please upload a PDF file to continue with the conversion.")
             return
         # --- FIX END ---
 
