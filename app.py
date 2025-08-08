@@ -33,7 +33,6 @@ from grok_ai import (
     analyze_email_subject,
     edit_email_body,
     write_email_body_with_grok,
-    translate_with_grok,
     analyze_document_context,
     is_document_followup_question,
     get_smart_greeting,
@@ -46,6 +45,7 @@ from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
+from cricket import get_live_cricket_score
 
 
 app = Flask(__name__)
@@ -217,7 +217,6 @@ def webhook():
         if "messages" not in entry or not entry["messages"]: return "OK", 200
         message = entry["messages"][0]
         sender_number = message["from"]
-        # FIX: Get the most current session data from the database for every message
         session_data = get_user_session(sender_number)
         msg_type = message.get("type")
 
@@ -582,8 +581,9 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        send_message(sender_number, "🌍 *AI Translator Active!*\n\nHow can I help you translate today?")
-        set_user_session(sender_number, "awaiting_translation")
+        send_message(sender_number, "🏏 Fetching live cricket scores...")
+        response_text = get_live_cricket_score()
+        send_message(sender_number, response_text)
         return
     elif user_text == "6":
         send_message(sender_number, "☁️ Fetching the current weather...")
@@ -598,7 +598,6 @@ def handle_text_message(user_text, sender_number, session_data):
     elif user_text == "8":
         creds = get_credentials_from_db(sender_number)
         if creds:
-            # FIX: Ensure a dictionary is always used for the session to prevent errors
             session_data = {"state": "awaiting_email_recipient"}
             set_user_session(sender_number, session_data)
             send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
@@ -693,7 +692,7 @@ def export_expenses_to_excel(sender_number, user_data):
     df = df[['Date', 'Time', 'item', 'place', 'cost']]
     df.rename(columns={'item': 'Item', 'place': 'Place', 'cost': 'Cost (₹)'}, inplace=True)
     file_path = os.path.join("uploads", f"expenses_{sender_number}.xlsx")
-    df.to_excel(file_path, index=False, engine='openpyxl')
+    df.to_excel(file_path, index=False, engine='openyxl')
     return file_path
 
 def send_daily_briefing():
