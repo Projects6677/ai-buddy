@@ -580,7 +580,6 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        # Removed cricket logic, now sends a default message
         send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     elif user_text == "6":
