@@ -42,7 +42,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, reminder_job
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_cricket_matches_menu
 from document_processor import get_text_from_file
 from weather import get_weather
 from cricket import get_live_cricket_score
@@ -120,6 +120,31 @@ def get_credentials_from_db(sender_number):
     if creds and creds.valid:
         return creds
     return None
+
+def get_matches_from_api():
+    """
+    Fetches all available matches from the cricket API.
+    """
+    RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+    RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST")
+    if not RAPIDAPI_KEY or not RAPIDAPI_HOST:
+        return []
+    
+    url = "https://free-cricbuzz-cricket-api.p.rapidapi.com/matches"
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching match list from RapidAPI: {e}")
+        return []
+
 
 def send_message_to_all_users(message):
     """Sends a standard text message to all users in the database."""
@@ -795,3 +820,4 @@ if __name__ == '__main__':
         )
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+}
