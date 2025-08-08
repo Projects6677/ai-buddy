@@ -121,7 +121,6 @@ def get_credentials_from_db(sender_number):
         return creds
     return None
 
-# --- NEW HELPER FUNCTION ---
 def send_message_to_all_users(message):
     """Sends a standard text message to all users in the database."""
     print(f"--- Sending message to all users: '{message}' ---")
@@ -132,10 +131,9 @@ def send_message_to_all_users(message):
     for user in all_users:
         user_id = user["_id"]
         send_message(user_id, message)
-        time.sleep(1) # Add a small delay to avoid rate limiting
+        time.sleep(1)
     print("Message sent to all users.")
 
-# === ROUTES ===
 @app.route('/')
 def home():
     return "WhatsApp AI Assistant is Live!"
@@ -349,11 +347,15 @@ def handle_text_message(user_text, sender_number, session_data):
     current_state = session_data.get("state") if isinstance(session_data, dict) else session_data
 
     user_data = get_user_from_db(sender_number)
-    if not user_data and user_text_lower not in menu_commands and not current_state:
+    
+    # --- FIX START ---
+    # This block is now at the very beginning to prioritize new user onboarding.
+    if not user_data and user_text_lower not in menu_commands and user_text_lower not in greetings and not current_state:
         set_user_session(sender_number, "awaiting_name")
         send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
         return
-
+    # --- FIX END ---
+    
     if user_text_lower in menu_commands:
         set_user_session(sender_number, None)
         user_data = get_user_from_db(sender_number)
@@ -380,9 +382,8 @@ def handle_text_message(user_text, sender_number, session_data):
         send_test_briefing(sender_number)
         return
     
-    # --- FIX START ---
-    # This block now correctly handles greetings for existing users and new users.
     if user_text_lower in greetings:
+        user_data = get_user_from_db(sender_number)
         if not user_data:
             set_user_session(sender_number, "awaiting_name")
             send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
@@ -390,8 +391,7 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
-    # --- FIX END ---
-    
+
     if current_state:
         if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
             send_message(sender_number, "Please upload a file or send text, depending on the conversion you selected.")
@@ -551,7 +551,6 @@ def handle_text_message(user_text, sender_number, session_data):
                     send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
                 return
         
-        set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
         return
     
@@ -805,4 +804,24 @@ def send_update_notification_to_all_users(feature_list):
         }]
     }]
 
-    print(f"Found {len(all_user
+    print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
+    for user in all_users:
+        send_template_message(user["_id"], template_name, components)
+        time.sleep(1)
+    print("--- Finished sending update notifications ---")
+
+
+# === RUN APP ===
+if __name__ == '__main__':
+    if not scheduler.get_job('daily_briefing_job'):
+        scheduler.add_job(
+            func=send_daily_briefing,
+            trigger='cron',
+            hour=8,
+            minute=0,
+            timezone='Asia/Kolkata',
+            id='daily_briefing_job',
+            replace_existing=True
+        )
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
