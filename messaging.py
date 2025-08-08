@@ -122,6 +122,55 @@ def send_interactive_menu(to, name):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
+def send_cricket_matches_menu(to, matches):
+    """Sends an interactive list menu with available cricket matches."""
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    if not matches:
+        send_message(to, "❌ No live or recently completed matches found.")
+        return
+
+    match_rows = []
+    for match in matches:
+        match_id = match.get("id")
+        match_title = match.get("title")
+        match_status = match.get("match_status")
+        description = f"Status: {match_status.capitalize()}"
+        match_rows.append({"id": f"cricket_match_{match_id}", "title": match_title, "description": description})
+    
+    # Add a refresh button at the bottom
+    match_rows.append({"id": "cricket_refresh", "title": "🔄 Refresh List", "description": "Get the latest match list."})
+
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Live Cricket Scores 🏏"},
+            "body": {"text": "Please select a match from the list below to get the score."},
+            "footer": {"text": "Choose a match"},
+            "action": {
+                "button": "Matches",
+                "sections": [
+                    {
+                        "title": "Available Matches",
+                        "rows": match_rows
+                    }
+                ]
+            }
+        }
+    }
+    try:
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send cricket match menu to {to}: {e.response.text if e.response else e}")
+
+
 def send_conversion_menu(to):
     """Sends an interactive LIST menu for file conversions."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
