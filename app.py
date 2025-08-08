@@ -9,10 +9,7 @@ import json
 import re
 from fpdf import FPDF
 from werkzeug.utils import secure_filename
-# --- FIX START ---
-# Reverted to using pdf2docx for conversion
 from pdf2docx import Converter
-# --- FIX END ---
 import fitz  # PyMuPDF
 import pytz
 from docx import Document
@@ -49,6 +46,9 @@ from reminders import schedule_reminder, reminder_job
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
+# --- FIX START ---
+from cricket import get_live_cricket_score
+# --- FIX END ---
 
 
 app = Flask(__name__)
@@ -342,9 +342,12 @@ def handle_document_message(message, sender_number, session_data):
                 cv.convert(output_docx_path, start=0, end=None)
                 cv.close()
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
+            except ValueError as e:
+                print(f"❌ PDF to Word conversion error: {e}")
+                send_message(sender_number, "❌ Sorry, the PDF to Word conversion failed. The file may be corrupted, encrypted, or in an unsupported format.")
             except Exception as e:
                 print(f"❌ PDF to Word conversion error: {e}")
-                send_message(sender_number, "❌ Sorry, the PDF to Word conversion failed. The file may be corrupted or in an unsupported format.")
+                send_message(sender_number, "❌ An unexpected error occurred during the PDF to Word conversion. Please try a different file.")
             finally:
                 if os.path.exists(downloaded_path): os.remove(downloaded_path)
                 if os.path.exists(output_docx_path): os.remove(output_docx_path)
@@ -527,7 +530,7 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if current_state:
         # --- FIX START ---
-        if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text"]:
+        if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
             # This handles text input while in a file conversion state
             if user_text_lower in menu_commands or user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
                 set_user_session(sender_number, None)
@@ -535,8 +538,15 @@ def handle_text_message(user_text, sender_number, session_data):
                 send_welcome_message(sender_number, user_data.get("name", "User"))
                 return
             
-            # If not a recognized command, send the file upload prompt again.
-            send_message(sender_number, "Please upload a PDF file to continue with the conversion.")
+            # If not a recognized command, send the file upload/text prompt again.
+            if current_state == "awaiting_pdf_to_docx":
+                send_message(sender_number, "Please upload a PDF file to convert to Word.")
+            elif current_state == "awaiting_pdf_to_text":
+                send_message(sender_number, "Please upload the PDF file you want to convert to text.")
+            elif current_state == "awaiting_text_to_pdf":
+                send_message(sender_number, "Please send me the text you want to convert to a PDF.")
+            elif current_state == "awaiting_text_to_word":
+                send_message(sender_number, "Please send me the text you want to convert to a Word file.")
             return
         # --- FIX END ---
 
@@ -549,18 +559,6 @@ def handle_text_message(user_text, sender_number, session_data):
             response_text = translate_with_grok(user_text)
             set_user_session(sender_number, None)
             send_message(sender_number, response_text)
-            return
-        elif current_state == "awaiting_text_to_pdf":
-            pdf_path = convert_text_to_pdf(user_text)
-            send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
-            if os.path.exists(pdf_path): os.remove(pdf_path)
-            set_user_session(sender_number, None)
-            return
-        elif current_state == "awaiting_text_to_word":
-            docx_path = convert_text_to_word(user_text)
-            send_file_to_user(sender_number, docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
-            if os.path.exists(docx_path): os.remove(docx_path)
-            set_user_session(sender_number, None)
             return
         elif current_state == "awaiting_name":
             name = user_text.split()[0].title()
