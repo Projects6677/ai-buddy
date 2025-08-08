@@ -489,9 +489,9 @@ def handle_text_message(user_text, sender_number, session_data):
                 if intent_data.get("intent") == "set_reminder" and intent_data.get("entities", {}).get("timestamp"):
                     timestamp = intent_data["entities"]["timestamp"]
                     response_text = schedule_email(
-                        recipients=session_data["recipients"],
-                        subject=session_data["subject"],
-                        body=session_data["body"],
+                        recipients=session_data.get("recipients"),
+                        subject=session_data.get("subject"),
+                        body=session_data.get("body"),
                         attachment_paths=session_data.get("attachment_paths"),
                         timestamp=timestamp,
                         sender_number=sender_number,
@@ -510,7 +510,7 @@ def handle_text_message(user_text, sender_number, session_data):
                         set_user_session(sender_number, None)
                         return
                     send_message(sender_number, "🚀 Sending your email...")
-                    response_text = send_email(creds, session_data["recipients"], session_data["subject"], session_data["body"], session_data.get("attachment_paths"))
+                    response_text = send_email(creds, session_data.get("recipients"), session_data.get("subject"), session_data.get("body"), session_data.get("attachment_paths"))
                     for path in session_data.get("attachment_paths", []):
                         if os.path.exists(path):
                             os.remove(path)
@@ -578,6 +578,22 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
+    elif user_text_lower in ["excel sheet", "excel", "give excel"]:
+        user_data = get_user_from_db(sender_number)
+        if not user_data or "expenses" not in user_data or not user_data["expenses"]:
+            send_message(sender_number, "❌ Sorry, I can't find any expenses to export.")
+            return
+
+        send_message(sender_number, "📊 Generating your expense report...")
+        file_path = export_expenses_to_excel(sender_number, user_data)
+        
+        if file_path and os.path.exists(file_path):
+            send_file_to_user(sender_number, file_path, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "✅ Here is your expense report.")
+            os.remove(file_path)
+        else:
+            send_message(sender_number, "❌ Sorry, I couldn't generate the Excel file. Please try again.")
+        return
+
 
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
@@ -596,7 +612,6 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        # Removed cricket logic, now sends a default message
         send_message(sender_number, "🤔 Live cricket score is no longer available as an option. Please select another menu item.")
         return
     elif user_text == "6":
@@ -723,7 +738,7 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_dayin_history()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -755,7 +770,7 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_dayin_history()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
