@@ -41,7 +41,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from reminders import schedule_reminder, reminder_job
+from reminders import schedule_reminder, reminder_job, schedule_email
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
@@ -347,13 +347,10 @@ def handle_text_message(user_text, sender_number, session_data):
 
     user_data = get_user_from_db(sender_number)
     
-    # --- FIX START ---
-    # This block is now at the very beginning to prioritize new user onboarding.
     if not user_data and user_text_lower not in menu_commands and user_text_lower not in greetings and not current_state:
         set_user_session(sender_number, "awaiting_name")
         send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
         return
-    # --- FIX END ---
     
     if user_text_lower in menu_commands:
         set_user_session(sender_number, None)
@@ -478,15 +475,35 @@ def handle_text_message(user_text, sender_number, session_data):
                     session_data["body"] = email_body
                     session_data["state"] = "email_review"
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"📝 Here's the draft:\n\n{email_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`?")
+                    send_message(sender_number, f"📝 Here's the draft:\n\n{email_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`? You can also schedule it, e.g., 'send tomorrow at 5pm'.")
                 else:
                     session_data["body"] = user_text
                     session_data["state"] = "email_review"
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, "Got the body. Do you want me to `send` it, `edit` it, or `attach a file`?")
+                    send_message(sender_number, "Got the body. Do you want me to `send` it, `edit` it, or `attach a file`? You can also schedule it, e.g., 'send tomorrow at 5pm'.")
                 return
 
             elif state == "email_review":
+                # Check if the user is trying to schedule the email
+                intent_data = route_user_intent(user_text)
+                if intent_data.get("intent") == "set_reminder" and intent_data.get("entities", {}).get("timestamp"):
+                    timestamp = intent_data["entities"]["timestamp"]
+                    send_message(sender_number, "🤖 Processing your request to schedule the email...")
+                    response_text = schedule_email(
+                        recipients=session_data["recipients"],
+                        subject=session_data["subject"],
+                        body=session_data["body"],
+                        attachment_paths=session_data.get("attachment_paths"),
+                        timestamp=timestamp,
+                        sender_number=sender_number,
+                        get_credentials_from_db=get_credentials_from_db,
+                        scheduler=scheduler,
+                        send_message=send_message
+                    )
+                    set_user_session(sender_number, None)
+                    send_message(sender_number, response_text)
+                    return
+                # Handle the regular "send" command
                 if user_text_lower == "send":
                     creds = get_credentials_from_db(sender_number)
                     if not creds:
@@ -512,7 +529,7 @@ def handle_text_message(user_text, sender_number, session_data):
                     send_message(sender_number, "📎 Please upload the file you would like to attach.")
                     return
                 else:
-                    send_message(sender_number, "I'm not sure what to do with that. Please reply with `send`, `edit`, or `attach a file`.")
+                    send_message(sender_number, "I'm not sure what to do with that. Please reply with `send`, `edit`, or `attach a file` or schedule the email with a time.")
                 return
 
             elif state == "awaiting_email_attachment":
@@ -520,7 +537,7 @@ def handle_text_message(user_text, sender_number, session_data):
                     session_data["state"] = "email_review"
                     set_user_session(sender_number, session_data)
                     num_attachments = len(session_data.get("attachment_paths", []))
-                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`?")
+                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`? You can also schedule it, e.g., 'send tomorrow at 5pm'.")
                 else:
                     send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
                 return
@@ -533,7 +550,7 @@ def handle_text_message(user_text, sender_number, session_data):
                     session_data["body"] = edited_body
                     session_data["state"] = "email_review"
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"✅ Here is the revised draft:\n\n{edited_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`?")
+                    send_message(sender_number, f"✅ Here is the revised draft:\n\n{edited_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`? You can also schedule it, e.g., 'send tomorrow at 5pm'.")
                 else:
                     send_message(sender_number, "❌ Sorry, I couldn't apply those edits. Please try again.")
                     session_data["state"] = "email_review"
@@ -545,7 +562,7 @@ def handle_text_message(user_text, sender_number, session_data):
                     session_data["state"] = "email_review"
                     set_user_session(sender_number, session_data)
                     num_attachments = len(session_data.get("attachment_paths", []))
-                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`?")
+                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`? You can also schedule it, e.g., 'send tomorrow at 5pm'.")
                 else:
                     send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
                 return
@@ -706,7 +723,7 @@ def send_daily_briefing():
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_dayin_history()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
@@ -738,7 +755,7 @@ def send_test_briefing(developer_number):
         return
 
     quote = get_daily_quote()
-    history_fact = get_on_this_dayin_history()
+    history_fact = get_on_this_day_in_history()
     weather = get_conversational_weather()
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
