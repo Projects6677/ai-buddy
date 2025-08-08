@@ -5,7 +5,7 @@ import os
 import time
 
 CRICAPI_URL = "https://api.cricapi.com/v1"
-API_KEY = "TESTKEY0273"  # Use for development. Get your own key by signing up on cricapi.com
+API_KEY = "c902ce72-4dc3-4ef2-9a30-5ea51b1da158"  # Use for development. Get your own key by signing up on cricapi.com
 
 def get_matches_from_api():
     """
