@@ -223,15 +223,8 @@ def webhook():
         msg_type = message.get("type")
 
         if msg_type == "interactive":
-            interactive_data = message["interactive"]
-            selection_id = ""
-            if interactive_data["type"] == "list_reply":
-                selection_id = interactive_data["list_reply"]["id"]
-            elif interactive_data["type"] == "button_reply":
-                selection_id = interactive_data["button_reply"]["id"]
-            
-            if selection_id:
-                handle_text_message(selection_id, sender_number, session_data)
+            selection_id = message["interactive"]["list_reply"]["id"] if "list_reply" in message["interactive"] else message["interactive"]["button_reply"]["id"]
+            handle_text_message(selection_id, sender_number, session_data)
         elif msg_type == "text":
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, session_data)
@@ -355,14 +348,12 @@ def handle_text_message(user_text, sender_number, session_data):
     
     current_state = session_data.get("state") if isinstance(session_data, dict) else session_data
 
-    # Check for a new user first. This should happen before any other logic.
     user_data = get_user_from_db(sender_number)
-    if not user_data and user_text_lower not in menu_commands and not any(greet in user_text_lower for greet in greetings):
+    if not user_data and user_text_lower not in menu_commands and not current_state:
         set_user_session(sender_number, "awaiting_name")
         send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
         return
 
-    # Check for menu/developer commands first, regardless of state
     if user_text_lower in menu_commands:
         set_user_session(sender_number, None)
         user_data = get_user_from_db(sender_number)
@@ -389,7 +380,18 @@ def handle_text_message(user_text, sender_number, session_data):
         send_test_briefing(sender_number)
         return
     
-    # If a menu/developer command was not sent, handle based on state
+    # --- FIX START ---
+    # This block now correctly handles greetings for existing users and new users.
+    if user_text_lower in greetings:
+        if not user_data:
+            set_user_session(sender_number, "awaiting_name")
+            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
+            return
+        else:
+            send_welcome_message(sender_number, user_data.get("name"))
+        return
+    # --- FIX END ---
+    
     if current_state:
         if current_state in ["awaiting_pdf_to_docx", "awaiting_pdf_to_text", "awaiting_text_to_pdf", "awaiting_text_to_word"]:
             send_message(sender_number, "Please upload a file or send text, depending on the conversion you selected.")
@@ -430,7 +432,7 @@ def handle_text_message(user_text, sender_number, session_data):
             set_user_session(sender_number, current_session)
             send_message(sender_number, response_text)
             return
-
+        
         if current_state == "awaiting_name":
             name = user_text.split()[0].title()
             create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False})
@@ -453,6 +455,102 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, name)
             return
         
+        if isinstance(session_data, dict):
+            state = session_data.get("state")
+            if state == "awaiting_email_recipient":
+                recipients = [email.strip() for email in user_text.split(',')]
+                session_data["recipients"] = recipients
+                session_data["state"] = "awaiting_email_subject"
+                set_user_session(sender_number, session_data)
+                send_message(sender_number, "👍 Got it. What's the subject of the email?")
+                return
+
+            elif state == "awaiting_email_subject":
+                session_data["subject"] = user_text
+                session_data["state"] = "awaiting_email_body"
+                set_user_session(sender_number, session_data)
+                send_message(sender_number, "📧 And what should the body of the email say? You can also ask me to generate it, e.g., 'Write a leave request.'")
+                return
+
+            elif state == "awaiting_email_body":
+                if user_text_lower.startswith("write a"):
+                    send_message(sender_number, "✍️ Generating the email body with AI...")
+                    email_body = write_email_body_with_grok(user_text)
+                    session_data["body"] = email_body
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, f"📝 Here's the draft:\n\n{email_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`?")
+                else:
+                    session_data["body"] = user_text
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, "Got the body. Do you want me to `send` it, `edit` it, or `attach a file`?")
+                return
+
+            elif state == "email_review":
+                if user_text_lower == "send":
+                    creds = get_credentials_from_db(sender_number)
+                    if not creds:
+                        send_message(sender_number, "❌ Sorry, your Google credentials are not valid. Please reconnect your account.")
+                        set_user_session(sender_number, None)
+                        return
+                    send_message(sender_number, "🚀 Sending your email...")
+                    response_text = send_email(creds, session_data["recipients"], session_data["subject"], session_data["body"], session_data.get("attachment_paths"))
+                    for path in session_data.get("attachment_paths", []):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    set_user_session(sender_number, None)
+                    send_message(sender_number, response_text)
+                    return
+                elif user_text_lower == "edit":
+                    session_data["state"] = "awaiting_email_edit"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, "✍️ What changes would you like to make to the draft? (e.g., 'make it more formal' or 'add a paragraph about the deadline')")
+                    return
+                elif user_text_lower == "attach a file":
+                    session_data["state"] = "awaiting_email_attachment"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, "📎 Please upload the file you would like to attach.")
+                    return
+                else:
+                    send_message(sender_number, "I'm not sure what to do with that. Please reply with `send`, `edit`, or `attach a file`.")
+                return
+
+            elif state == "awaiting_email_attachment":
+                if user_text_lower == "done":
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                    num_attachments = len(session_data.get("attachment_paths", []))
+                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`?")
+                else:
+                    send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
+                return
+
+            elif state == "awaiting_email_edit":
+                send_message(sender_number, "📝 Applying your edits with AI...")
+                original_body = session_data.get("body")
+                edited_body = edit_email_body(original_body, user_text)
+                if edited_body:
+                    session_data["body"] = edited_body
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, f"✅ Here is the revised draft:\n\n{edited_body}\n\nDo you want me to `send` it, `edit` it, or `attach a file`?")
+                else:
+                    send_message(sender_number, "❌ Sorry, I couldn't apply those edits. Please try again.")
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                return
+
+            elif state == "awaiting_more_attachments":
+                if user_text_lower == "done":
+                    session_data["state"] = "email_review"
+                    set_user_session(sender_number, session_data)
+                    num_attachments = len(session_data.get("attachment_paths", []))
+                    send_message(sender_number, f"✅ Got it. {num_attachments} file(s) attached. Do you want to `send` it, `edit` it, or `attach a file`?")
+                else:
+                    send_message(sender_number, "I'm not sure what to do with that. Please upload a file, or type `done` if you are finished.")
+                return
+        
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
         return
@@ -462,6 +560,7 @@ def handle_text_message(user_text, sender_number, session_data):
         if not user_data:
             set_user_session(sender_number, "awaiting_name")
             send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
+            return
         else:
             send_welcome_message(sender_number, user_data.get("name"))
         return
@@ -555,7 +654,6 @@ def handle_text_message(user_text, sender_number, session_data):
     if response_text:
         send_message(sender_number, response_text)
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
 
@@ -707,24 +805,4 @@ def send_update_notification_to_all_users(feature_list):
         }]
     }]
 
-    print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
-    for user in all_users:
-        send_template_message(user["_id"], template_name, components)
-        time.sleep(1)
-    print("--- Finished sending update notifications ---")
-
-
-# === RUN APP ===
-if __name__ == '__main__':
-    if not scheduler.get_job('daily_briefing_job'):
-        scheduler.add_job(
-            func=send_daily_briefing,
-            trigger='cron',
-            hour=8,
-            minute=0,
-            timezone='Asia/Kolkata',
-            id='daily_briefing_job',
-            replace_existing=True
-        )
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    print(f"Found {len(all_user
