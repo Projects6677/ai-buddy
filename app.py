@@ -12,7 +12,6 @@ from werkzeug.utils import secure_filename
 # --- FIX START ---
 # Removed Converter from pdf2docx
 import pypandoc
-# Removed the incorrect import of `exceptions`
 # --- FIX END ---
 import fitz  # PyMuPDF
 import pytz
@@ -340,7 +339,7 @@ def handle_document_message(message, sender_number, session_data):
                 # Use pypandoc instead of pdf2docx for conversion
                 pypandoc.convert_file(downloaded_path, 'docx', outputfile=output_docx_path)
                 send_file_to_user(sender_number, output_docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "📄 Here is your converted Word file.")
-            except pypandoc.exceptions.PandocError as e:
+            except pypandoc.PandocError as e:
                 print(f"❌ PDF to Word conversion error: {e}")
                 send_message(sender_number, "❌ Conversion failed: The required 'pandoc' program is not installed on the server or the file is corrupted. Please install pandoc or try a different file.")
             except Exception as e:
@@ -528,10 +527,24 @@ def handle_text_message(user_text, sender_number, session_data):
     # --- END RESTORED & UPDATED EMAIL FLOW LOGIC ---
 
     if current_state:
+        # --- FIX START ---
         if current_state == "awaiting_pdf_to_docx":
+            # Check if the user is trying to exit the state with a command.
+            if user_text_lower in menu_commands:
+                set_user_session(sender_number, None)
+                user_data = get_user_from_db(sender_number)
+                send_welcome_message(sender_number, user_data.get("name", "User"))
+                return
+            elif user_text_lower in [".nuke", ".stats", ".dev", ".test"]:
+                set_user_session(sender_number, None)
+                handle_text_message(user_text, sender_number, session_data)
+                return
+            
+            # If not a command, it's an unexpected text input, so we send an error message and return.
             send_message(sender_number, "Please upload a PDF file to convert to Word.")
             return
-        
+        # --- FIX END ---
+
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
             set_user_session(sender_number, None)
