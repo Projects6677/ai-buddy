@@ -137,9 +137,9 @@ def send_cricket_matches_menu(to, matches):
     match_rows = []
     for match in matches:
         match_id = match.get("id")
-        match_title = match.get("title")
-        match_status = match.get("match_status")
-        description = f"Status: {match_status.capitalize()}"
+        match_title = match.get("name") # Use "name" from CricAPI response
+        match_status = match.get("status")
+        description = f"Status: {match_status}"
         match_rows.append({"id": f"cricket_match_{match_id}", "title": match_title, "description": description})
     
     # Add a refresh button at the bottom
