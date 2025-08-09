@@ -121,12 +121,10 @@ def get_credentials_from_db(sender_number):
         return creds
     return None
 
-# --- NEW HELPER FOR GOOGLE AUTH LINK ---
 def send_google_auth_link(sender_number):
     """Generates and sends the Google authentication link to a user."""
     if GOOGLE_REDIRECT_URI:
         try:
-            # Use request.url_root which is more reliable in production
             base_url = request.url_root
             auth_link = f"{base_url}google-auth?state={sender_number}"
             auth_message = (
@@ -139,7 +137,6 @@ def send_google_auth_link(sender_number):
             send_message(sender_number, "Sorry, I couldn't generate a connection link right now.")
     else:
         send_message(sender_number, "Google connection is not configured on the server.")
-
 
 # === ROUTES ===
 @app.route('/')
@@ -392,7 +389,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, stats_message)
             return
         
-        # --- MODIFICATION: ADD .reconnect COMMAND FOR ALL USERS ---
         elif user_text.lower() == ".reconnect":
             send_google_auth_link(sender_number)
             return
@@ -406,7 +402,8 @@ def handle_text_message(user_text, sender_number, session_data):
                 entities = intent_data.get("entities", {})
                 task = entities.get("task")
                 time_expression = entities.get("time_expression")
-                response_text = schedule_reminder(task, time_expression, sender_number, get_credentials_from_db, scheduler)
+                recurrence = entities.get("recurrence")
+                response_text = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, response_text)
             else:
                 send_message(sender_number, "I didn't understand that as a reminder. Please try again, for example: 'Call mom tomorrow at 5pm'")
@@ -603,7 +600,8 @@ def handle_text_message(user_text, sender_number, session_data):
     if intent == "set_reminder":
         task = entities.get("task")
         time_expression = entities.get("time_expression")
-        response_text = schedule_reminder(task, time_expression, sender_number, get_credentials_from_db, scheduler)
+        recurrence = entities.get("recurrence")
+        response_text = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
 
     elif intent == "log_expense":
         if entities:
