@@ -14,6 +14,8 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+
+# --- NEW: ENHANCED BRIEFING GENERATOR ---
 def generate_enhanced_briefing(quote, author, history_events, weather_data):
     """
     Uses a single AI call to generate detailed explanations for the daily briefing.
@@ -25,7 +27,6 @@ def generate_enhanced_briefing(quote, author, history_events, weather_data):
             "detailed_weather": "Weather data is currently unavailable."
         }
 
-    # Prepare the data for the prompt
     history_texts = [event.get("text", "") for event in history_events]
     
     prompt = f"""
@@ -70,11 +71,9 @@ def generate_enhanced_briefing(quote, author, history_events, weather_data):
             "detailed_weather": "Could not generate weather forecast."
         }
 
+
 # --- PRIMARY INTENT ROUTER ---
 def route_user_intent(text):
-    """
-    Analyzes user text to determine intent and extract entities in a single API call.
-    """
     if not GROK_API_KEY:
         return {"intent": "general_query", "entities": {}}
 
@@ -105,7 +104,6 @@ def route_user_intent(text):
     5. "export_expenses":
        - Triggered by requests to export, download, or get an expense report, sheet, or excel file.
        - "entities": {{}}
-       - Example: "send me my expense report" -> {{"intent": "export_expenses", "entities": {{}}}}
 
     6. "general_query":
        - This is the default intent for any general question, statement, or command that doesn't fit the other categories.
@@ -134,11 +132,9 @@ def route_user_intent(text):
 
 
 # --- OTHER AI FUNCTIONS ---
-# (The rest of this file remains the same as the previous version)
-
 def get_smart_greeting(user_name):
     if not GROK_API_KEY: return f"☀️ Good Morning, {user_name}!"
-    prompt = f"You are an AI assistant that writes cheerful morning greetings. Today's date is {datetime.now().strftime('%A, %B %d, %Y')}. Check if today is a well-known special day (e.g., a holiday like Diwali, Friendship Day, etc.). If it IS a special day, create a short, festive greeting like '🎉 Happy Friendship Day, {user_name}!'. If it is NOT a special day, just return the standard greeting: '☀️ Good Morning, {user_name}!'. Return only the greeting text."
+    prompt = f"You are an AI assistant that writes cheerful morning greetings for a user named {user_name}. Today's date is {datetime.now().strftime('%A, %B %d, %Y')}. Check if today is a well-known special day (e.g., a holiday like Diwali, Friendship Day, International Cat Day, etc.). If it IS a special day, create a short, festive greeting like '🎉 Happy Friendship Day, {user_name}!'. If it is NOT a special day, just return a standard greeting like '☀️ Good Morning, {user_name}!'. Return only the greeting text."
     payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5 }
     try:
         response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
@@ -147,30 +143,6 @@ def get_smart_greeting(user_name):
     except Exception as e:
         print(f"Grok smart greeting error: {e}")
         return f"☀️ Good Morning, {user_name}!"
-
-def get_conversational_weather(city="Vijayawada"):
-    if not GROK_API_KEY or not os.environ.get("OPENWEATHER_API_KEY"):
-        return "Weather data is currently unavailable."
-    try:
-        api_key = os.environ.get("OPENWEATHER_API_KEY")
-        url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        weather_description = data['weather'][0]['description']
-        temp = data['main']['temp']
-    except Exception as e:
-        print(f"Raw weather fetch error: {e}")
-        return "Could not fetch today's weather data."
-    prompt = f"You are an AI weather forecaster. Given the following weather data, write a short, friendly, and conversational forecast (1-2 sentences). If it's raining or cloudy, suggest taking an umbrella. If it's sunny, suggest it's a nice day to be outside. Location: {city}, Temperature: {temp}°C, Conditions: {weather_description}. Example: 'It looks like a clear day in Vijayawada with a temperature of around 30°C. Perfect weather to be outside!'. Return only the forecast text."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.6 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok conversational weather error: {e}")
-        return f"Today in {city}: {temp}°C, {weather_description}."
 
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
