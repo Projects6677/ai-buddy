@@ -322,6 +322,58 @@ def handle_text_message(user_text, sender_number, session_data):
     menu_commands = ["start", "menu", "help", "options", "0"]
     greetings = ["hi", "hello", "hey"]
     
+    # --- MODIFICATION: DEV COMMANDS ARE CHECKED FIRST ---
+    if user_text.startswith("."):
+        if user_text.startswith(".dev"):
+            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+                send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+                return
+            parts = user_text.split()
+            if len(parts) < 3:
+                send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
+                return
+            command, key, features = parts[0], parts[1], " ".join(parts[2:])
+            if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
+                send_message(sender_number, "❌ Invalid admin secret key.")
+                return
+            scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+            send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
+            return
+
+        elif user_text.startswith(".test"):
+            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+                send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+                return
+            parts = user_text.split()
+            if len(parts) != 2:
+                send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
+                return
+            passcode = parts[1]
+            if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
+                send_message(sender_number, "❌ Invalid passcode.")
+                return
+            send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
+            send_test_briefing(sender_number)
+            return
+            
+        elif user_text.lower() == ".nuke":
+            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+                send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+                return
+            result = delete_all_users_from_db()
+            count = result.deleted_count
+            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
+            return
+
+        elif user_text.lower() == ".stats":
+            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+                send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+                return
+            count = count_users_in_db()
+            stats_message = f"� *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+            send_message(sender_number, stats_message)
+            return
+
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
     if current_state:
@@ -409,57 +461,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, user_data.get("name"))
         return
 
-    # --- Dev commands ---
-    if user_text.startswith(".dev"):
-        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
-            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
-            return
-        parts = user_text.split()
-        if len(parts) < 3:
-            send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
-            return
-        command, key, features = parts[0], parts[1], " ".join(parts[2:])
-        if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
-            send_message(sender_number, "❌ Invalid admin secret key.")
-            return
-        scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
-        send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
-        return
-
-    elif user_text.startswith(".test"):
-        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
-            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
-            return
-        parts = user_text.split()
-        if len(parts) != 2:
-            send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
-            return
-        passcode = parts[1]
-        if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
-            send_message(sender_number, "❌ Invalid passcode.")
-            return
-        send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
-        send_test_briefing(sender_number)
-        return
-        
-    elif user_text.lower() == ".nuke":
-        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
-            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
-            return
-        result = delete_all_users_from_db()
-        count = result.deleted_count
-        send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
-        return
-
-    elif user_text.lower() == ".stats":
-        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
-            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
-            return
-        count = count_users_in_db()
-        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
-        send_message(sender_number, stats_message)
-        return
-
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
@@ -467,25 +468,6 @@ def handle_text_message(user_text, sender_number, session_data):
     elif user_text == "2":
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
-        return
-    elif user_text == "3":
-        set_user_session(sender_number, "awaiting_ai")
-        send_message(sender_number, "🤖 You can now chat with me! Ask me anything.\n\n_Type `menu` to exit this mode._")
-        return
-    elif user_text == "4":
-        send_conversion_menu(sender_number)
-        return
-    elif user_text == "5":
-        set_user_session(sender_number, "awaiting_translation")
-        send_message(sender_number, "🌍 *AI Translator Active!*\n\nHow can I help you translate today?")
-        return
-    elif user_text == "8":
-        creds = get_credentials_from_db(sender_number)
-        if creds:
-            set_user_session(sender_number, "awaiting_email_recipient")
-            send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
-        else:
-            send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
         return
     # ... (other menu button logic) ...
 
