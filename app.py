@@ -28,7 +28,7 @@ from google.auth.transport.requests import Request
 from currency import convert_currency
 from grok_ai import (
     route_user_intent,
-    get_smart_greeting,
+    generate_enhanced_briefing,
     ai_reply,
     correct_grammar_with_grok,
     analyze_email_subject,
@@ -443,8 +443,105 @@ def handle_text_message(user_text, sender_number, session_data):
             return
 
         if isinstance(session_data, dict):
-            # ... (Full email logic can be pasted here if needed) ...
-            pass
+            if current_state == "awaiting_email_recipient":
+                recipients = [email.strip() for email in user_text.split(',')]
+                valid_recipients = [email for email in recipients if re.match(r"[^@]+@[^@]+\.[^@]+", email)]
+                if valid_recipients:
+                    new_session = {"state": "awaiting_email_subject", "recipients": valid_recipients}
+                    set_user_session(sender_number, new_session)
+                    send_message(sender_number, f"✅ Got recipient(s). Now, what should the subject of the email be?")
+                else:
+                    send_message(sender_number, "⚠️ I couldn't find any valid email addresses. Please try again.")
+                return
+            
+            elif current_state == "awaiting_email_subject":
+                subject = user_text
+                send_message(sender_number, "👍 Great subject. Let me think of some follow-up questions...")
+                questions = analyze_email_subject(subject)
+                session_data["subject"] = subject
+                if questions:
+                    session_data["state"] = "gathering_email_details"
+                    session_data["questions"] = questions
+                    session_data["answers"] = []
+                    session_data["current_question_index"] = 0
+                    send_message(sender_number, questions[0])
+                else:
+                    session_data["state"] = "awaiting_email_prompt_fallback"
+                    send_message(sender_number, "Okay, I'll just need one main prompt. What should the email be about?")
+                set_user_session(sender_number, session_data)
+                return
+                
+            elif current_state == "gathering_email_details":
+                session_data["answers"].append(user_text)
+                session_data["current_question_index"] += 1
+                if session_data["current_question_index"] < len(session_data["questions"]):
+                    send_message(sender_number, session_data["questions"][session_data["current_question_index"]])
+                    set_user_session(sender_number, session_data)
+                else:
+                    send_message(sender_number, "🤖 Got all the details. Writing your email with AI, please wait...")
+                    full_prompt = f"Write an email with the subject '{session_data['subject']}'. Use the following details:\n" + "\n".join([f"- {q}: {a}" for q, a in zip(session_data["questions"], session_data["answers"])])
+                    email_body = write_email_body_with_grok(full_prompt)
+                    if "❌" in email_body:
+                        send_message(sender_number, email_body)
+                        set_user_session(sender_number, None)
+                    else:
+                        session_data["state"] = "awaiting_email_edit"
+                        session_data["body"] = email_body
+                        set_user_session(sender_number, session_data)
+                        send_message(sender_number, f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._")
+                return
+
+            elif current_state == "awaiting_email_prompt_fallback":
+                prompt = user_text
+                send_message(sender_number, "🤖 Writing your email with AI, please wait...")
+                email_body = write_email_body_with_grok(prompt)
+                if "❌" in email_body:
+                    send_message(sender_number, email_body)
+                    set_user_session(sender_number, None)
+                else:
+                    session_data["state"] = "awaiting_email_edit"
+                    session_data["body"] = email_body
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, f"Here is the draft:\n\n---\n{email_body}\n---\n\n_You can ask for changes, type *'attach'* to add a file, or type *'send'* to approve._")
+                return
+                    
+            elif current_state == "awaiting_more_attachments":
+                if user_text_lower == "done":
+                    session_data["state"] = "awaiting_email_edit"
+                    set_user_session(sender_number, session_data)
+                    num_files = len(session_data.get("attachment_paths", []))
+                    send_message(sender_number, f"✅ Okay, {num_files} file(s) are attached. You can now review the draft, ask for more changes, or type *'send'*.")
+                else:
+                    send_message(sender_number, "Please upload another file, or type *'done'* to finish.")
+                return
+                    
+            elif current_state == "awaiting_email_edit":
+                if user_text_lower in ["send", "send it", "approve", "ok send", "yes send"]:
+                    send_message(sender_number, "✅ Okay, sending the email from your account...")
+                    creds = get_credentials_from_db(sender_number)
+                    if creds:
+                        attachment_paths = session_data.get("attachment_paths", [])
+                        response_text = send_email(creds, session_data["recipients"], session_data["subject"], session_data["body"], attachment_paths)
+                        for path in attachment_paths:
+                            if os.path.exists(path): os.remove(path)
+                        send_message(sender_number, response_text)
+                    else:
+                        send_message(sender_number, "❌ Could not send email. Your Google account is not connected properly. Please try re-connecting.")
+                    set_user_session(sender_number, None)
+                elif user_text_lower == "attach":
+                    session_data["state"] = "awaiting_email_attachment"
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, "📎 Please upload the first file you want to attach.")
+                else:
+                    send_message(sender_number, "✏️ Applying your changes, please wait...")
+                    new_body = edit_email_body(session_data["body"], user_text)
+                    if new_body:
+                        session_data["body"] = new_body
+                        set_user_session(sender_number, session_data)
+                        send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._")
+                    else:
+                        send_message(sender_number, "Sorry, I couldn't apply that change.")
+                return
         
         set_user_session(sender_number, None)
         send_message(sender_number, "I seem to have gotten confused. Let's start over.")
