@@ -5,6 +5,7 @@ import pytz
 from messaging import send_template_message
 from google_calendar_integration import create_google_calendar_event
 import re
+import time # MODIFICATION: Added the missing import
 
 def parse_recurrence_to_cron(recurrence_rule, start_time):
     """
@@ -47,9 +48,12 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         task = "Reminder"
 
     try:
+        # Use the powerful dateutil parser to understand the natural language time
         start_time = date_parser.parse(time_expression)
+        
         tz = pytz.timezone('Asia/Kolkata')
 
+        # If the parsed time has no timezone, assume it's for the local timezone
         if start_time.tzinfo is None:
             start_time = tz.localize(start_time)
 
@@ -57,7 +61,13 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         
         # Ensure the first run time is in the future
         if start_time < now:
-            start_time += timedelta(days=1)
+            # If the time is in the past, but on the same day, assume it's for the next day
+            if start_time.date() == now.date():
+                start_time += timedelta(days=1)
+            # This logic might need adjustment for recurring reminders, but is a safe default
+            elif not recurrence_rule:
+                 return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
+
 
         template_name = "reminder_alert"
         components = [{"type": "body", "parameters": [{"type": "text", "text": task}]}]
