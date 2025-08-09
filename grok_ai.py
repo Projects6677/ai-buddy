@@ -115,34 +115,7 @@ def route_user_intent(text):
         return {"intent": "general_query", "entities": {}}
 
 
-# --- OTHER AI FUNCTIONS ---
 
-# --- MODIFICATION: CULTURALLY-AWARE GREETING ---
-def get_smart_greeting(user_name):
-    if not GROK_API_KEY: return f"☀️ Good Morning, {user_name}!"
-    
-    prompt = f"""
-    You are an AI assistant with a deep understanding of Indian culture, festivals, and significant national days. Your persona is that of a helpful Indian friend.
-    Your task is to generate a cheerful morning greeting for a user named {user_name}.
-    Today's date is {datetime.now().strftime('%A, %B %d, %Y')}.
-
-    Follow these rules strictly:
-    1.  **Prioritize Indian Festivals:** First, check if today is a major Indian festival (like Raksha Bandhan, Diwali, Holi, Eid, Dussehra, Janmashtami, Ganesh Chaturthi), a national holiday (like Independence Day, Republic Day, Gandhi Jayanti), or a significant regional festival (like Onam, Pongal, Bihu).
-    2.  **Generate a Festive Greeting:** If it is a major Indian event, create a short, festive greeting. For example: "Happy Raksha Bandhan, {user_name}!" or "Wishing you a joyful Diwali, {user_name}!".
-    3.  **Secondary Check for Global Events:** If it is NOT a major Indian event, you can then check for widely recognized international days that are popular in India (like Friendship Day, New Year's Day, Valentine's Day).
-    4.  **Default Greeting:** If it is not a special day according to the rules above, just return a standard, cheerful greeting: "☀️ Good Morning, {user_name}!"
-    5.  **Exclusion:** Do NOT mention obscure or region-specific holidays from other countries (e.g., American Independence Day, specific European saints' days).
-
-    Return only the single line of greeting text.
-    """
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.6 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok smart greeting error: {e}")
-        return f"☀️ Good Morning, {user_name}!"
 
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
