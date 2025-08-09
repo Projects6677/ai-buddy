@@ -81,6 +81,7 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
 
 
 # --- PRIMARY INTENT ROUTER ---
+
 def route_user_intent(text):
     if not GROK_API_KEY:
         return {"intent": "general_query", "entities": {}}
@@ -95,7 +96,9 @@ def route_user_intent(text):
 
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
-       - "entities": {{"task": "The thing to be reminded of", "timestamp": "The exact time in YYYY-MM-DD HH:MM:SS format"}}
+       - **MODIFICATION**: Extract the time expression exactly as the user wrote it.
+       - "entities": {{"task": "The thing to be reminded of", "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm' or 'at 11:55am today'"}}
+       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "time_expression": "tomorrow at 4pm"}}}}
 
     2. "log_expense":
        - Triggered by statements about spending money.
