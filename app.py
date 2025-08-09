@@ -28,7 +28,7 @@ from google.auth.transport.requests import Request
 from currency import convert_currency
 from grok_ai import (
     route_user_intent,
-    generate_enhanced_briefing,
+    generate_full_daily_briefing,
     ai_reply,
     correct_grammar_with_grok,
     analyze_email_subject,
@@ -37,8 +37,7 @@ from grok_ai import (
     translate_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
-    is_document_followup_question,
-    get_smart_greeting
+    is_document_followup_question
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
@@ -699,22 +698,21 @@ def send_daily_briefing():
         return
 
     festival = get_indian_festival_today()
-
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     weather_data = get_raw_weather_data()
-    enhanced_content = generate_enhanced_briefing(quote, author, history_events, weather_data)
-    
-    quote_explanation = enhanced_content.get("quote_explanation", "Have a wonderful day!")
-    detailed_history = enhanced_content.get("detailed_history", "No historical fact found for today.")
-    detailed_weather = enhanced_content.get("detailed_weather", "Weather data is currently unavailable.")
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
         user_id = user["_id"]
         user_name = user.get("name", "there")
         
-        greeting = get_smart_greeting(user_name, festival_name=festival)
+        briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
+        
+        greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
+        quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!")
+        detailed_history = briefing_content.get("detailed_history", "No historical fact found for today.")
+        detailed_weather = briefing_content.get("detailed_weather", "Weather data is currently unavailable.")
         
         template_name = "daily_briefing_v3" 
         components = [
@@ -739,18 +737,17 @@ def send_test_briefing(developer_number):
         return
 
     festival = get_indian_festival_today()
-
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     weather_data = get_raw_weather_data()
-    enhanced_content = generate_enhanced_briefing(quote, author, history_events, weather_data)
-    
-    quote_explanation = enhanced_content.get("quote_explanation", "Test explanation.")
-    detailed_history = enhanced_content.get("detailed_history", "Test history.")
-    detailed_weather = enhanced_content.get("detailed_weather", "Test weather.")
-    
     user_name = user.get("name", "Developer")
-    greeting = get_smart_greeting(user_name, festival_name=festival)
+
+    briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
+    
+    greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
+    quote_explanation = briefing_content.get("quote_explanation", "Test explanation.")
+    detailed_history = briefing_content.get("detailed_history", "Test history.")
+    detailed_weather = briefing_content.get("detailed_weather", "Test weather.")
 
     template_name = "daily_briefing_v3"
     components = [
