@@ -121,6 +121,26 @@ def get_credentials_from_db(sender_number):
         return creds
     return None
 
+# --- NEW HELPER FOR GOOGLE AUTH LINK ---
+def send_google_auth_link(sender_number):
+    """Generates and sends the Google authentication link to a user."""
+    if GOOGLE_REDIRECT_URI:
+        try:
+            # Use request.url_root which is more reliable in production
+            base_url = request.url_root
+            auth_link = f"{base_url}google-auth?state={sender_number}"
+            auth_message = (
+                "To connect or re-connect your Google Account for features like calendar events and email, "
+                f"please click this link:\n\n{auth_link}"
+            )
+            send_message(sender_number, auth_message)
+        except Exception as e:
+            print(f"Error generating Google Auth link: {e}")
+            send_message(sender_number, "Sorry, I couldn't generate a connection link right now.")
+    else:
+        send_message(sender_number, "Google connection is not configured on the server.")
+
+
 # === ROUTES ===
 @app.route('/')
 def home():
@@ -371,6 +391,11 @@ def handle_text_message(user_text, sender_number, session_data):
             stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
             send_message(sender_number, stats_message)
             return
+        
+        # --- MODIFICATION: ADD .reconnect COMMAND FOR ALL USERS ---
+        elif user_text.lower() == ".reconnect":
+            send_google_auth_link(sender_number)
+            return
 
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
@@ -438,19 +463,8 @@ def handle_text_message(user_text, sender_number, session_data):
             set_user_session(sender_number, None)
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
             time.sleep(1)
-            if GOOGLE_REDIRECT_URI:
-                try:
-                    parsed_uri = urlparse(request.url_root)
-                    base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
-                    auth_link = f"{base_url}/google-auth?state={sender_number}"
-                    auth_message = (
-                        "To get the most out of me (like calendar events), connect your Google Account. "
-                        f"Click here to connect: {auth_link}"
-                    )
-                    send_message(sender_number, auth_message)
-                    time.sleep(2)
-                except Exception as e:
-                    print(f"Error generating Google Auth link: {e}")
+            send_google_auth_link(sender_number)
+            time.sleep(2)
             send_welcome_message(sender_number, name)
             return
 
