@@ -28,6 +28,7 @@ from google.auth.transport.requests import Request
 from currency import convert_currency
 from grok_ai import (
     route_user_intent,
+    generate_enhanced_briefing,
     ai_reply,
     correct_grammar_with_grok,
     analyze_email_subject,
@@ -37,11 +38,10 @@ from grok_ai import (
     analyze_document_context,
     get_contextual_ai_response,
     is_document_followup_question,
-    get_smart_greeting,
-    get_conversational_weather
+    get_smart_greeting
 )
 from email_sender import send_email
-from services import get_daily_quote, get_on_this_day_in_history
+from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -409,6 +409,57 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, user_data.get("name"))
         return
 
+    # --- Dev commands ---
+    if user_text.startswith(".dev"):
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        parts = user_text.split()
+        if len(parts) < 3:
+            send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
+            return
+        command, key, features = parts[0], parts[1], " ".join(parts[2:])
+        if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
+            send_message(sender_number, "❌ Invalid admin secret key.")
+            return
+        scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+        send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
+        return
+
+    elif user_text.startswith(".test"):
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        parts = user_text.split()
+        if len(parts) != 2:
+            send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
+            return
+        passcode = parts[1]
+        if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
+            send_message(sender_number, "❌ Invalid passcode.")
+            return
+        send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
+        send_test_briefing(sender_number)
+        return
+        
+    elif user_text.lower() == ".nuke":
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        result = delete_all_users_from_db()
+        count = result.deleted_count
+        send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
+        return
+
+    elif user_text.lower() == ".stats":
+        if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
+            return
+        count = count_users_in_db()
+        stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+        send_message(sender_number, stats_message)
+        return
+
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
@@ -457,7 +508,6 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             response_text = "Sorry, I couldn't understand that as an expense."
 
-    # --- MODIFICATION: ADDED EXPORT EXPENSES INTENT ---
     elif intent == "export_expenses":
         send_message(sender_number, "📊 Generating your expense report...")
         user_data = get_user_from_db(sender_number)
@@ -467,7 +517,7 @@ def handle_text_message(user_text, sender_number, session_data):
             os.remove(file_path)
         else:
             send_message(sender_number, "You have no expenses to export yet.")
-        return # Return early as we've already sent the response
+        return 
 
     elif intent == "convert_currency":
         if entities:
@@ -570,9 +620,14 @@ def send_daily_briefing():
         print("No users found. Skipping job.")
         return
 
-    quote = get_daily_quote()
-    history_fact = get_on_this_day_in_history()
-    weather = get_conversational_weather()
+    quote, author = get_daily_quote()
+    history_events = get_on_this_day_in_history()
+    weather_data = get_raw_weather_data()
+    enhanced_content = generate_enhanced_briefing(quote, author, history_events, weather_data)
+    
+    quote_explanation = enhanced_content.get("quote_explanation", "Have a wonderful day!")
+    detailed_history = enhanced_content.get("detailed_history", "No historical fact found for today.")
+    detailed_weather = enhanced_content.get("detailed_weather", "Weather data is currently unavailable.")
 
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
@@ -581,13 +636,14 @@ def send_daily_briefing():
         
         greeting = get_smart_greeting(user_name)
         
-        template_name = "daily_briefing_v2"
+        template_name = "daily_briefing_v3" 
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
-                {"type": "text", "text": quote},
-                {"type": "text", "text": history_fact},
-                {"type": "text", "text": weather}
+                {"type": "text", "text": f"{quote} - {author}"},
+                {"type": "text", "text": quote_explanation},
+                {"type": "text", "text": detailed_history},
+                {"type": "text", "text": detailed_weather}
             ]}
         ]
         
@@ -602,19 +658,26 @@ def send_test_briefing(developer_number):
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
 
-    quote = get_daily_quote()
-    history_fact = get_on_this_day_in_history()
-    weather = get_conversational_weather()
+    quote, author = get_daily_quote()
+    history_events = get_on_this_day_in_history()
+    weather_data = get_raw_weather_data()
+    enhanced_content = generate_enhanced_briefing(quote, author, history_events, weather_data)
+    
+    quote_explanation = enhanced_content.get("quote_explanation", "Test explanation.")
+    detailed_history = enhanced_content.get("detailed_history", "Test history.")
+    detailed_weather = enhanced_content.get("detailed_weather", "Test weather.")
+    
     user_name = user.get("name", "Developer")
     greeting = get_smart_greeting(user_name)
 
-    template_name = "daily_briefing_v2"
+    template_name = "daily_briefing_v3"
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
-            {"type": "text", "text": quote},
-            {"type": "text", "text": history_fact},
-            {"type": "text", "text": weather}
+            {"type": "text", "text": f"{quote} - {author}"},
+            {"type": "text", "text": quote_explanation},
+            {"type": "text", "text": detailed_history},
+            {"type": "text", "text": detailed_weather}
         ]}
     ]
     
@@ -633,7 +696,6 @@ def send_update_notification_to_all_users(feature_list):
         return
 
     template_name = "bot_update_notification"
-
     components = [{
         "type": "body",
         "parameters": [{
