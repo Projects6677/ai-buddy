@@ -375,20 +375,18 @@ def handle_text_message(user_text, sender_number, session_data):
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
     if current_state:
-        # --- MODIFICATION START: FIX FOR REMINDER TEXT ---
         if current_state == "awaiting_reminder_text":
             intent_data = route_user_intent(user_text)
             if intent_data.get("intent") == "set_reminder":
                 entities = intent_data.get("entities", {})
                 task = entities.get("task")
-                timestamp = entities.get("timestamp")
-                response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
+                time_expression = entities.get("time_expression")
+                response_text = schedule_reminder(task, time_expression, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, response_text)
             else:
                 send_message(sender_number, "I didn't understand that as a reminder. Please try again, for example: 'Call mom tomorrow at 5pm'")
             set_user_session(sender_number, None)
             return
-        # --- MODIFICATION END ---
 
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
@@ -590,8 +588,8 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if intent == "set_reminder":
         task = entities.get("task")
-        timestamp = entities.get("timestamp")
-        response_text = schedule_reminder(task, timestamp, sender_number, get_credentials_from_db, scheduler)
+        time_expression = entities.get("time_expression")
+        response_text = schedule_reminder(task, time_expression, sender_number, get_credentials_from_db, scheduler)
 
     elif intent == "log_expense":
         if entities:
