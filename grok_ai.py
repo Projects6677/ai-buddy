@@ -14,47 +14,63 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
-def get_smart_greeting(user_name, festival_name=None):
+
+# --- ENHANCED BRIEFING GENERATOR ---
+def generate_enhanced_briefing(quote, author, history_events, weather_data):
     """
-    Generates a smart greeting. If a festival name is provided, it creates a festive
-    greeting for it. Otherwise, it returns a standard greeting.
+    Uses a single AI call to generate detailed explanations for the daily briefing.
     """
     if not GROK_API_KEY:
-        if festival_name:
-            return f"Happy {festival_name}, {user_name}!"
-        return f"☀️ Good Morning, {user_name}!"
+        return {
+            "quote_explanation": "Have a great day!",
+            "detailed_history": "No historical fact found for today.",
+            "detailed_weather": "Weather data is currently unavailable."
+        }
+
+    history_texts = [event.get("text", "") for event in history_events]
     
-    if festival_name:
-        # If we know it's a festival, the AI's only job is to be creative.
-        prompt = f"""
-        You are an AI assistant that writes creative, cheerful greetings.
-        Today is {festival_name} in India.
-        Write a short, festive greeting for a user named {user_name}.
-        
-        Example for Raksha Bandhan: "Happy Raksha Bandhan, {user_name}!"
-        Example for Diwali: "Wishing you a bright and joyful Diwali, {user_name}!"
+    prompt = f"""
+    You are an expert AI assistant that creates engaging daily briefing content.
+    The current user is in Vijayawada, India.
+    Today's date is {datetime.now().strftime('%A, %B %d, %Y')}.
 
-        Return only the single line of greeting text.
-        """
-    else:
-        # If it's not a festival, just give a standard greeting.
-        prompt = f"""
-        You are an AI assistant that writes a standard morning greeting.
-        Write a simple, cheerful greeting for a user named {user_name}.
-        
-        Example: "☀️ Good Morning, {user_name}!"
+    You must generate three distinct pieces of content based on the data provided below and return them in a single JSON object with the keys: "quote_explanation", "detailed_history", and "detailed_weather".
 
-        Return only the single line of greeting text.
-        """
+    1.  **Quote Analysis:**
+        -   Quote: "{quote}"
+        -   Author: {author}
+        -   Task: Explain the meaning and relevance of this quote in a single, insightful sentence.
 
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.6 }
+    2.  **Historical Event:**
+        -   Events: {json.dumps(history_texts)}
+        -   Task: From the list of historical events, pick the most interesting one and write a slightly more detailed and engaging summary about it (2-3 sentences).
+
+    3.  **Weather Forecast:**
+        -   Weather Data: {json.dumps(weather_data)}
+        -   Task: Write a friendly, conversational, and more detailed weather forecast for Vijayawada. Mention the current temperature, what it feels like, the conditions (e.g., "sunny with scattered clouds"), and the wind speed. Add a brief suggestion, like what to wear or if it's a good day to be outside.
+
+    Return only the JSON object.
+    """
+
+    payload = {
+        "model": GROK_MODEL_SMART,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "response_format": {"type": "json_object"}
+    }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+        result_text = response.json()["choices"][0]["message"]["content"]
+        return json.loads(result_text)
     except Exception as e:
-        print(f"Grok smart greeting error: {e}")
-        return f"☀️ Good Morning, {user_name}!"
+        print(f"Grok enhanced briefing error: {e}")
+        return {
+            "quote_explanation": "Could not generate explanation.",
+            "detailed_history": "Could not generate historical fact.",
+            "detailed_weather": "Could not generate weather forecast."
+        }
+
 
 # --- PRIMARY INTENT ROUTER ---
 def route_user_intent(text):
@@ -115,7 +131,42 @@ def route_user_intent(text):
         return {"intent": "general_query", "entities": {}}
 
 
+# --- OTHER AI FUNCTIONS ---
+def get_smart_greeting(user_name, festival_name=None):
+    if not GROK_API_KEY:
+        if festival_name:
+            return f"Happy {festival_name}, {user_name}!"
+        return f"☀️ Good Morning, {user_name}!"
+    
+    if festival_name:
+        prompt = f"""
+        You are an AI assistant that writes creative, cheerful greetings.
+        Today is {festival_name} in India.
+        Write a short, festive greeting for a user named {user_name}.
+        
+        Example for Raksha Bandhan: "Happy Raksha Bandhan, {user_name}!"
+        Example for Diwali: "Wishing you a bright and joyful Diwali, {user_name}!"
 
+        Return only the single line of greeting text.
+        """
+    else:
+        prompt = f"""
+        You are an AI assistant that writes a standard morning greeting.
+        Write a simple, cheerful greeting for a user named {user_name}.
+        
+        Example: "☀️ Good Morning, {user_name}!"
+
+        Return only the single line of greeting text.
+        """
+
+    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.6 }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"Grok smart greeting error: {e}")
+        return f"☀️ Good Morning, {user_name}!"
 
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
