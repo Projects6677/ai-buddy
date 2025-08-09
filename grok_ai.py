@@ -81,7 +81,6 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
 
 
 # --- PRIMARY INTENT ROUTER ---
-
 def route_user_intent(text):
     if not GROK_API_KEY:
         return {"intent": "general_query", "entities": {}}
@@ -96,9 +95,14 @@ def route_user_intent(text):
 
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
-       - **MODIFICATION**: Extract the time expression exactly as the user wrote it.
-       - "entities": {{"task": "The thing to be reminded of", "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm' or 'at 11:55am today'"}}
-       - Example: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "time_expression": "tomorrow at 4pm"}}}}
+       - "entities": {{
+           "task": "The thing to be reminded of",
+           "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm' or 'at 11:55am today'",
+           "recurrence": "The recurrence rule if mentioned (e.g., 'every day', 'every Tuesday', 'every month on the 1st'), otherwise null"
+         }}
+       - Example 1: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "time_expression": "tomorrow at 4pm", "recurrence": null}}}}
+       - Example 2: "remind me to take medicine every day at 8am" -> {{"intent": "set_reminder", "entities": {{"task": "take medicine", "time_expression": "at 8am", "recurrence": "every day"}}}}
+       - Example 3: "remind me to pay rent on the 1st of every month at noon" -> {{"intent": "set_reminder", "entities": {{"task": "pay rent", "time_expression": "at noon", "recurrence": "every month on the 1st"}}}}
 
     2. "log_expense":
        - Triggered by statements about spending money.
@@ -140,7 +144,6 @@ def route_user_intent(text):
     except Exception as e:
         print(f"Grok intent routing error: {e}")
         return {"intent": "general_query", "entities": {}}
-
 
 # --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
