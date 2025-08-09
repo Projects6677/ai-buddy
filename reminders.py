@@ -1,11 +1,12 @@
 # reminders.py
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
+from dateutil.relativedelta import relativedelta
 import pytz
 from messaging import send_template_message
 from google_calendar_integration import create_google_calendar_event
 import re
-import time # MODIFICATION: Added the missing import
+import time
 
 def parse_recurrence_to_cron(recurrence_rule, start_time):
     """
@@ -25,12 +26,11 @@ def parse_recurrence_to_cron(recurrence_rule, start_time):
         cron_args['hour'] = start_time.hour
         cron_args['minute'] = start_time.minute
     elif 'every month' in rule_lower:
-        # Find the day of the month, e.g., "1st", "15th"
         day_match = re.search(r'(\d+)(?:st|nd|rd|th)?', rule_lower)
         if day_match:
             cron_args['day'] = int(day_match.group(1))
         else:
-            cron_args['day'] = start_time.day # Default to the same day of the month
+            cron_args['day'] = start_time.day
         cron_args['hour'] = start_time.hour
         cron_args['minute'] = start_time.minute
     
@@ -48,37 +48,37 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         task = "Reminder"
 
     try:
-        # Use the powerful dateutil parser to understand the natural language time
         start_time = date_parser.parse(time_expression)
-        
         tz = pytz.timezone('Asia/Kolkata')
 
-        # If the parsed time has no timezone, assume it's for the local timezone
         if start_time.tzinfo is None:
             start_time = tz.localize(start_time)
 
         now = datetime.now(tz)
         
-        # Ensure the first run time is in the future
-        if start_time < now:
-            # If the time is in the past, but on the same day, assume it's for the next day
+        # Handle one-time reminders for a past time on the same day
+        if start_time < now and not recurrence_rule:
             if start_time.date() == now.date():
                 start_time += timedelta(days=1)
-            # This logic might need adjustment for recurring reminders, but is a safe default
-            elif not recurrence_rule:
-                 return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
-
+            else:
+                return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
 
         template_name = "reminder_alert"
         components = [{"type": "body", "parameters": [{"type": "text", "text": task}]}]
         
-        job_id = f"reminder_{user}_{int(time.time())}" # Use timestamp for a unique ID
+        job_id = f"reminder_{user}_{int(time.time())}"
         
         cron_args = parse_recurrence_to_cron(recurrence_rule, start_time)
+        job = None
 
         if cron_args:
-            # This is a recurring reminder
-            scheduler.add_job(
+            # --- MODIFICATION: SMARTER RECURRENCE HANDLING ---
+            # If the calculated start time for a monthly job is in the past,
+            # set the start_date for the scheduler to the next month.
+            if start_time < now:
+                cron_args['start_date'] = now + relativedelta(months=1)
+
+            job = scheduler.add_job(
                 func=send_template_message,
                 trigger='cron',
                 args=[user, template_name, components],
@@ -86,10 +86,10 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
                 replace_existing=True,
                 **cron_args
             )
-            base_confirmation = f"✅ Recurring reminder set for '{task}' ({recurrence_rule})."
+            next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
+            base_confirmation = f"✅ Recurring reminder set for '{task}' ({recurrence_rule}).\n\nThe next one is on *{next_run}*."
         else:
-            # This is a one-time reminder
-            scheduler.add_job(
+            job = scheduler.add_job(
                 func=send_template_message,
                 trigger='date',
                 run_date=start_time,
@@ -99,8 +99,6 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
             )
             base_confirmation = f"✅ Reminder set for '{task}' on {start_time.strftime('%A, %b %d at %I:%M %p')}."
 
-        # Google Calendar integration does not support recurrence in this simple setup
-        # It will only add the first instance of the event.
         gcal_confirmation = ""
         event_link_text = ""
         creds = get_creds_func(user)
