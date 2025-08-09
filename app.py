@@ -41,7 +41,7 @@ from grok_ai import (
     get_smart_greeting
 )
 from email_sender import send_email
-from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data
+from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
@@ -322,7 +322,6 @@ def handle_text_message(user_text, sender_number, session_data):
     menu_commands = ["start", "menu", "help", "options", "0"]
     greetings = ["hi", "hello", "hey"]
     
-    # --- MODIFICATION: DEV COMMANDS ARE CHECKED FIRST ---
     if user_text.startswith("."):
         if user_text.startswith(".dev"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
@@ -370,7 +369,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             count = count_users_in_db()
-            stats_message = f"� *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
             send_message(sender_number, stats_message)
             return
 
@@ -602,6 +601,8 @@ def send_daily_briefing():
         print("No users found. Skipping job.")
         return
 
+    festival = get_indian_festival_today()
+
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     weather_data = get_raw_weather_data()
@@ -616,7 +617,7 @@ def send_daily_briefing():
         user_id = user["_id"]
         user_name = user.get("name", "there")
         
-        greeting = get_smart_greeting(user_name)
+        greeting = get_smart_greeting(user_name, festival_name=festival)
         
         template_name = "daily_briefing_v3" 
         components = [
@@ -640,6 +641,8 @@ def send_test_briefing(developer_number):
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
         return
 
+    festival = get_indian_festival_today()
+
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     weather_data = get_raw_weather_data()
@@ -650,7 +653,7 @@ def send_test_briefing(developer_number):
     detailed_weather = enhanced_content.get("detailed_weather", "Test weather.")
     
     user_name = user.get("name", "Developer")
-    greeting = get_smart_greeting(user_name)
+    greeting = get_smart_greeting(user_name, festival_name=festival)
 
     template_name = "daily_briefing_v3"
     components = [
