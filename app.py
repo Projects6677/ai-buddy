@@ -28,7 +28,7 @@ from google.auth.transport.requests import Request
 from currency import convert_currency
 from grok_ai import (
     route_user_intent,
-    generate_enhanced_briefing,
+    get_smart_greeting,
     ai_reply,
     correct_grammar_with_grok,
     analyze_email_subject,
