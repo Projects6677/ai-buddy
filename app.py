@@ -307,7 +307,7 @@ def handle_document_message(message, sender_number, session_data):
 
         analysis = analyze_document_context(extracted_text)
         if not analysis:
-            send_message(sender_number, "� I analyzed the document, but I'm not sure what to do with it.")
+            send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
             set_user_session(sender_number, None)
             return
             
@@ -399,17 +399,26 @@ def handle_text_message(user_text, sender_number, session_data):
         if current_state == "awaiting_reminder_text":
             intent_data = route_user_intent(user_text)
             if intent_data.get("intent") == "set_reminder":
-                entities = intent_data.get("entities", {})
-                task = entities.get("task")
-                time_expression = entities.get("time_expression")
-                recurrence = entities.get("recurrence")
-                response_text = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
-                send_message(sender_number, response_text)
+                reminders_to_set = intent_data.get("entities", [])
+                
+                if isinstance(reminders_to_set, list) and reminders_to_set:
+                    confirmations = []
+                    for rem in reminders_to_set:
+                        task = rem.get("task")
+                        time_expression = rem.get("time_expression")
+                        recurrence = rem.get("recurrence")
+                        conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                        confirmations.append(conf)
+                    
+                    send_message(sender_number, f"✅ Successfully set {len(confirmations)} reminders for you.")
+                else:
+                    send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
+
             else:
                 send_message(sender_number, "I didn't understand that as a reminder. Please try again, for example: 'Call mom tomorrow at 5pm'")
             set_user_session(sender_number, None)
             return
-
+        
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
@@ -598,10 +607,18 @@ def handle_text_message(user_text, sender_number, session_data):
     response_text = ""
 
     if intent == "set_reminder":
-        task = entities.get("task")
-        time_expression = entities.get("time_expression")
-        recurrence = entities.get("recurrence")
-        response_text = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+        reminders_to_set = entities
+        if isinstance(reminders_to_set, list) and reminders_to_set:
+            confirmations = []
+            for rem in reminders_to_set:
+                task = rem.get("task")
+                time_expression = rem.get("time_expression")
+                recurrence = rem.get("recurrence")
+                conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                confirmations.append(conf)
+            response_text = f"✅ Successfully set {len(confirmations)} reminders for you."
+        else:
+            response_text = "Sorry, I couldn't find any reminders to set in your message."
 
     elif intent == "log_expense":
         if entities:
