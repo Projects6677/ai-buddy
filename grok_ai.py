@@ -95,29 +95,27 @@ def route_user_intent(text):
 
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
-       - "entities": {{
-           "task": "The thing to be reminded of",
-           "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm' or 'at 11:55am today'",
-           "recurrence": "The recurrence rule if mentioned (e.g., 'every day', 'every Tuesday', 'every month on the 1st'), otherwise null"
-         }}
-       - Example 1: "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": {{"task": "call the doctor", "time_expression": "tomorrow at 4pm", "recurrence": null}}}}
-       - Example 2: "remind me to take medicine every day at 8am" -> {{"intent": "set_reminder", "entities": {{"task": "take medicine", "time_expression": "at 8am", "recurrence": "every day"}}}}
-       - Example 3: "remind me to pay rent on the 1st of every month at noon" -> {{"intent": "set_reminder", "entities": {{"task": "pay rent", "time_expression": "at noon", "recurrence": "every month on the 1st"}}}}
+       - **MODIFICATION**: The entities should be an ARRAY of reminder objects. If there's only one reminder, it's an array with one object.
+       - "entities": [
+           {{
+               "task": "The thing to be reminded of",
+               "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm'",
+               "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"
+           }}
+         ]
+       - Example 1 (Single): "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": [{{"task": "call the doctor", "time_expression": "tomorrow at 4pm", "recurrence": null}}]}}
+       - Example 2 (Multiple): "remind me to eat at 1pm and sleep at 10pm every day" -> {{"intent": "set_reminder", "entities": [{{"task": "eat", "time_expression": "at 1pm", "recurrence": "every day"}}, {{"task": "sleep", "time_expression": "at 10pm", "recurrence": "every day"}}]}}
 
     2. "log_expense":
-       - Triggered by statements about spending money.
        - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD_or_null"}}
 
     3. "convert_currency":
-       - Triggered by requests to convert currencies.
        - "entities": An array of objects, each with {{"amount": <number>, "from_currency": "3-letter_code", "to_currency": "3-letter_code"}}
 
     4. "get_weather":
-       - Triggered by requests for weather information.
        - "entities": {{"location": "city_name"}}
 
     5. "export_expenses":
-       - Triggered by requests to export, download, or get an expense report, sheet, or excel file.
        - "entities": {{}}
 
     6. "general_query":
@@ -137,7 +135,7 @@ def route_user_intent(text):
         "response_format": {"type": "json_object"}
     }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=25)
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45) # Increased timeout for complex parsing
         response.raise_for_status()
         result_text = response.json()["choices"][0]["message"]["content"]
         return json.loads(result_text)
