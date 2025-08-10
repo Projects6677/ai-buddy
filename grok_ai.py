@@ -95,31 +95,26 @@ def route_user_intent(text):
 
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
-       - **MODIFICATION**: The entities should be an ARRAY of reminder objects. If there's only one reminder, it's an array with one object.
-       - "entities": [
-           {{
-               "task": "The thing to be reminded of",
-               "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm'",
-               "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"
-           }}
-         ]
-       - Example 1 (Single): "remind me to call the doctor tomorrow at 4pm" -> {{"intent": "set_reminder", "entities": [{{"task": "call the doctor", "time_expression": "tomorrow at 4pm", "recurrence": null}}]}}
-       - Example 2 (Multiple): "remind me to eat at 1pm and sleep at 10pm every day" -> {{"intent": "set_reminder", "entities": [{{"task": "eat", "time_expression": "at 1pm", "recurrence": "every day"}}, {{"task": "sleep", "time_expression": "at 10pm", "recurrence": "every day"}}]}}
+       - "entities": An ARRAY of objects, each with {{"task": "...", "time_expression": "...", "recurrence": "..."}}
 
-    2. "log_expense":
-       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD_or_null"}}
-
-    3. "convert_currency":
-       - "entities": An array of objects, each with {{"amount": <number>, "from_currency": "3-letter_code", "to_currency": "3-letter_code"}}
-
-    4. "get_weather":
-       - "entities": {{"location": "city_name"}}
-
-    5. "export_expenses":
+    2. "get_reminders":
+       - Triggered by requests to see, check, show, or list all active reminders.
        - "entities": {{}}
 
-    6. "general_query":
-       - This is the default intent for any general question, statement, or command that doesn't fit the other categories.
+    3. "log_expense":
+       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD_or_null"}}
+
+    4. "convert_currency":
+       - "entities": An array of objects, each with {{"amount": <number>, "from_currency": "3-letter_code", "to_currency": "3-letter_code"}}
+
+    5. "get_weather":
+       - "entities": {{"location": "city_name"}}
+
+    6. "export_expenses":
+       - "entities": {{}}
+
+    7. "general_query":
+       - This is the default intent for any other general question or command.
        - "entities": {{}}
 
     ---
@@ -135,13 +130,14 @@ def route_user_intent(text):
         "response_format": {"type": "json_object"}
     }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45) # Increased timeout for complex parsing
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
         response.raise_for_status()
         result_text = response.json()["choices"][0]["message"]["content"]
         return json.loads(result_text)
     except Exception as e:
         print(f"Grok intent routing error: {e}")
         return {"intent": "general_query", "entities": {}}
+
 
 # --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
