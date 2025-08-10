@@ -2,13 +2,12 @@
 import requests
 import os
 import time
-from werkzeug.utils import secure_filename
 
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
-def send_message(to, message, max_retries=3):
-    """Sends a standard text message with retry logic."""
+def send_message(to, message):
+    """Sends a standard text message."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -20,30 +19,15 @@ def send_message(to, message, max_retries=3):
         "type": "text",
         "text": {"body": message, "preview_url": True}
     }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send message to {to}: {e}")
 
-    retries = 0
-    while retries < max_retries:
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=10)
-            response.raise_for_status()
-            print(f"Message sent successfully to {to}. Status: {response.status_code}")
-            return
-        except requests.exceptions.RequestException as e:
-            retries += 1
-            if retries < max_retries:
-                # Use exponential backoff for retries
-                sleep_time = 2 ** retries
-                print(f"❌ Failed to send message to {to}: {e}. Retrying in {sleep_time}s...")
-                time.sleep(sleep_time)
-            else:
-                print(f"❌ Failed to send message to {to} after {max_retries} retries: {e}")
-                # Log the specific response text to help debug the "Bad Request" error
-                if e.response:
-                    print(f"Response content: {e.response.text}")
-                raise e # Re-raise the exception after exhausting retries
 
-def send_template_message(to, template_name, components=[], max_retries=3):
-    """Sends a pre-approved template message with retry logic."""
+def send_template_message(to, template_name, components=[]):
+    """Sends a pre-approved template message."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -62,27 +46,12 @@ def send_template_message(to, template_name, components=[], max_retries=3):
         "type": "template",
         "template": template_data
     }
-
-    retries = 0
-    while retries < max_retries:
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=10)
-            response.raise_for_status()
-            print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
-            return
-        except requests.exceptions.RequestException as e:
-            retries += 1
-            if retries < max_retries:
-                # Use exponential backoff for retries
-                sleep_time = 2 ** retries
-                print(f"❌ Failed to send template message to {to}: {e}. Retrying in {sleep_time}s...")
-                time.sleep(sleep_time)
-            else:
-                print(f"❌ Failed to send template message to {to} after {max_retries} retries: {e}")
-                # Log the specific response text to help debug the "Bad Request" error
-                if e.response:
-                    print(f"Response content: {e.response.text}")
-                raise e # Re-raise the exception after exhausting retries
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
+        print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send template message to {to}: {e.response.text if e.response else e}")
 
 def send_interactive_menu(to, name):
     """Sends the main interactive list menu."""
@@ -106,7 +75,8 @@ def send_interactive_menu(to, name):
             "action": {
                 "button": "Choose an Option",
                 "sections": [{"title": "Main Features","rows": [
-                            {"id": "1", "title": "Set a Reminder", "description": "Schedule a reminder for any task."},
+                            {"id": "1", "title": "Set a Reminder", "description": "Schedule a one-time or recurring reminder."},
+                            {"id": "9", "title": "Check Reminders", "description": "See all your active reminders."},
                             {"id": "2", "title": "Fix Grammar", "description": "Correct spelling and grammar."},
                             {"id": "3", "title": "Ask AI Anything", "description": "Chat with the AI assistant."},
                             {"id": "4", "title": "File/Text Conversion", "description": "Convert between PDF and Word."},
@@ -119,7 +89,8 @@ def send_interactive_menu(to, name):
         }
     }
     try:
-        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
@@ -159,41 +130,3 @@ def send_conversion_menu(to):
         requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send conversion menu to {to}: {e.response.text if e.response else e}")
-
-def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
-    """Sends a file to the user."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/media"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    with open(file_path, "rb") as f:
-        files = {'file': (os.path.basename(file_path), f, mime_type)}
-        data = {"messaging_product": "whatsapp"}
-        upload_response = requests.post(url, headers=headers, files=files, data=data)
-    
-    # Check if the upload was successful
-    if upload_response.status_code != 200:
-        print(f"❌ Error uploading file: {upload_response.text}")
-        return
-    
-    media_id = upload_response.json().get("id")
-    if not media_id: 
-        print("❌ Error: Media ID not found in upload response.")
-        return
-    
-    message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "document",
-        "document": {
-            "id": media_id,
-            "caption": caption
-        }
-    }
-    
-    # Check if the message send was successful
-    try:
-        send_response = requests.post(message_url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}, json=payload)
-        send_response.raise_for_status()
-        print(f"✅ File sent successfully to {to}.")
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error sending message with file: {e.response.text if e.response else e}")
