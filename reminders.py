@@ -10,27 +10,45 @@ import time
 
 def get_all_reminders(user, scheduler):
     """
-    Fetches all scheduled jobs for a specific user and formats them into a readable list.
+    Fetches all scheduled jobs for a specific user and returns a structured list of dictionaries.
     """
     user_jobs = [job for job in scheduler.get_jobs() if job.id.startswith(f"reminder_{user}")]
 
     if not user_jobs:
-        return "You have no active reminders set."
+        return []
 
     tz = pytz.timezone('Asia/Kolkata')
-    reminders_list = ["*Here are your active reminders:*\n"]
+    reminders_list = []
 
     for job in user_jobs:
         try:
-            # The task is stored in the job's arguments
             task = job.args[2][0]['parameters'][0]['text']
-            next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
-            reminders_list.append(f"- *{task}* (Next: {next_run})")
-        except (IndexError, KeyError):
-            # Fallback in case the job args are not as expected
-            reminders_list.append("- An older, unreadable reminder.")
+            next_run = job.next_run_time.astimezone(tz).strftime('%a, %b %d at %I:%M %p')
+            
+            # Check if the job is recurring by looking at its trigger
+            is_recurring = "Recurring" if hasattr(job.trigger, 'start_date') or type(job.trigger).__name__ == 'CronTrigger' else "One-Time"
 
-    return "\n".join(reminders_list)
+            reminders_list.append({
+                "id": job.id,
+                "task": task,
+                "next_run": next_run,
+                "type": is_recurring
+            })
+        except (IndexError, KeyError, AttributeError):
+            continue # Skip malformed or old jobs
+
+    return reminders_list
+
+def delete_reminder(job_id, scheduler):
+    """
+    Removes a specific job from the scheduler by its ID.
+    """
+    try:
+        scheduler.remove_job(job_id)
+        return True
+    except Exception as e:
+        print(f"Error removing job {job_id}: {e}")
+        return False
 
 
 def parse_recurrence_to_cron(recurrence_rule, start_time):
@@ -91,8 +109,9 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         base_confirmation = ""
 
         if cron_args:
-            # For recurring jobs, let the scheduler calculate the first run.
-            # If the calculated start time is in the past for today, it will correctly schedule for the next valid day.
+            if start_time < now and 'every month' in recurrence_rule.lower():
+                cron_args['start_date'] = now + relativedelta(months=1)
+
             job = scheduler.add_job(
                 func=send_template_message,
                 trigger='cron',
@@ -104,10 +123,9 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
             next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
             base_confirmation = f"✅ Recurring reminder set for '{task}' ({recurrence_rule}).\n\nThe next one is on *{next_run}*."
         else:
-            # For one-time jobs, we must manually ensure the time is in the future.
             if start_time < now:
                 if start_time.date() == now.date():
-                    start_time += timedelta(days=1) # If time is past today, schedule for tomorrow
+                    start_time += timedelta(days=1)
                 else:
                     return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
             
@@ -125,7 +143,6 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         event_link_text = ""
         creds = get_creds_func(user)
         if creds:
-            # Always use the job's calculated next run time for the GCal event
             gcal_first_run = job.next_run_time if job else start_time
             gcal_message, event_link = create_google_calendar_event(creds, task, gcal_first_run)
             gcal_confirmation = f"\n{gcal_message}"
