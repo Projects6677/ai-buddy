@@ -42,7 +42,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from reminders import schedule_reminder
+from reminders import schedule_reminder, get_all_reminders
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu
 from document_processor import get_text_from_file
 from weather import get_weather
@@ -122,7 +122,6 @@ def get_credentials_from_db(sender_number):
     return None
 
 def send_google_auth_link(sender_number):
-    """Generates and sends the Google authentication link to a user."""
     if GOOGLE_REDIRECT_URI:
         try:
             base_url = request.url_root
@@ -397,7 +396,6 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if current_state:
         if current_state == "awaiting_reminder_text":
-            # --- MODIFICATION: SCHEDULE A BACKGROUND JOB FOR PROCESSING ---
             send_message(sender_number, "Got it! I'm working on scheduling your reminders. This might take a moment...")
             scheduler.add_job(
                 func=process_and_schedule_reminders,
@@ -592,7 +590,6 @@ def handle_text_message(user_text, sender_number, session_data):
         return
     # ... (other menu button logic) ...
 
-    # --- MODIFICATION: SCHEDULE A BACKGROUND JOB FOR PROCESSING ---
     send_message(sender_number, "🤖 Analyzing...")
     scheduler.add_job(
         func=process_natural_language_request,
@@ -604,7 +601,28 @@ def handle_text_message(user_text, sender_number, session_data):
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 
-# --- NEW BACKGROUND PROCESSING FUNCTION ---
+def process_and_schedule_reminders(user_text, sender_number):
+    """
+    This function specifically handles processing reminders in the background.
+    """
+    intent_data = route_user_intent(user_text)
+    if intent_data.get("intent") == "set_reminder":
+        reminders_to_set = intent_data.get("entities", [])
+        
+        if isinstance(reminders_to_set, list) and reminders_to_set:
+            for rem in reminders_to_set:
+                task = rem.get("task")
+                time_expression = rem.get("time_expression")
+                recurrence = rem.get("recurrence")
+                conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                send_message(sender_number, conf)
+                time.sleep(0.5)
+            send_message(sender_number, f"All {len(reminders_to_set)} reminders have been scheduled! 👍")
+        else:
+            send_message(sender_number, "I couldn't find any reminders to set in that message.")
+    else:
+        send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
+
 def process_natural_language_request(user_text, sender_number):
     """
     This function runs in the background to handle long AI calls, preventing webhook timeouts.
@@ -617,18 +635,15 @@ def process_natural_language_request(user_text, sender_number):
     if intent == "set_reminder":
         reminders_to_set = entities
         if isinstance(reminders_to_set, list) and reminders_to_set:
-            confirmations = []
             for rem in reminders_to_set:
                 task = rem.get("task")
                 time_expression = rem.get("time_expression")
                 recurrence = rem.get("recurrence")
                 conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
-                confirmations.append(conf)
-            # Send individual confirmations for clarity
-            for conf in confirmations:
                 send_message(sender_number, conf)
-                time.sleep(0.5) # Small delay between messages
-            return # Exit after sending confirmations
+                time.sleep(0.5)
+            send_message(sender_number, f"✅ All {len(reminders_to_set)} reminders have been scheduled!")
+            return
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
 
@@ -672,7 +687,6 @@ def process_natural_language_request(user_text, sender_number):
 
     if response_text:
         send_message(sender_number, response_text)
-
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
