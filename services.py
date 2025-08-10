@@ -5,7 +5,6 @@ import os
 from datetime import datetime
 import random
 
-# --- NEW: FESTIVAL CHECKER ---
 def get_indian_festival_today():
     """
     Checks if the current date corresponds to a major Indian festival.
