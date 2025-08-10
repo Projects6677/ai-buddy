@@ -8,32 +8,6 @@ from google_calendar_integration import create_google_calendar_event
 import re
 import time
 
-# --- NEW FUNCTION TO GET ALL REMINDERS ---
-def get_all_reminders(user, scheduler):
-    """
-    Fetches all scheduled jobs for a specific user and formats them into a readable list.
-    """
-    user_jobs = [job for job in scheduler.get_jobs() if job.id.startswith(f"reminder_{user}")]
-
-    if not user_jobs:
-        return "You have no active reminders set."
-
-    tz = pytz.timezone('Asia/Kolkata')
-    reminders_list = ["*Here are your active reminders:*\n"]
-
-    for job in user_jobs:
-        try:
-            # The task is stored in the job's arguments
-            task = job.args[2][0]['parameters'][0]['text']
-            next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
-            reminders_list.append(f"- *{task}* (Next: {next_run})")
-        except (IndexError, KeyError):
-            # Fallback in case the job args are not as expected
-            reminders_list.append("- An older, unreadable reminder.")
-
-    return "\n".join(reminders_list)
-
-
 def parse_recurrence_to_cron(recurrence_rule, start_time):
     """
     Converts a natural language recurrence rule into cron arguments for apscheduler.
@@ -82,12 +56,6 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
 
         now = datetime.now(tz)
         
-        if start_time < now and not recurrence_rule:
-            if start_time.date() == now.date():
-                start_time += timedelta(days=1)
-            else:
-                return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
-
         template_name = "reminder_alert"
         components = [{"type": "body", "parameters": [{"type": "text", "text": task}]}]
         
@@ -95,11 +63,11 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         
         cron_args = parse_recurrence_to_cron(recurrence_rule, start_time)
         job = None
+        base_confirmation = ""
 
         if cron_args:
-            if start_time < now:
-                cron_args['start_date'] = now + relativedelta(months=1)
-
+            # For recurring jobs, let the scheduler calculate the first run.
+            # If the calculated start time is in the past for today, it will correctly schedule for the next valid day.
             job = scheduler.add_job(
                 func=send_template_message,
                 trigger='cron',
@@ -111,6 +79,13 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
             next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
             base_confirmation = f"✅ Recurring reminder set for '{task}' ({recurrence_rule}).\n\nThe next one is on *{next_run}*."
         else:
+            # For one-time jobs, we must manually ensure the time is in the future.
+            if start_time < now:
+                if start_time.date() == now.date():
+                    start_time += timedelta(days=1) # If time is past today, schedule for tomorrow
+                else:
+                    return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
+            
             job = scheduler.add_job(
                 func=send_template_message,
                 trigger='date',
@@ -125,7 +100,9 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         event_link_text = ""
         creds = get_creds_func(user)
         if creds:
-            gcal_message, event_link = create_google_calendar_event(creds, task, start_time)
+            # Always use the job's calculated next run time for the GCal event
+            gcal_first_run = job.next_run_time if job else start_time
+            gcal_message, event_link = create_google_calendar_event(creds, task, gcal_first_run)
             gcal_confirmation = f"\n{gcal_message}"
             if event_link:
                 event_link_text = f"\n\n🔗 View Event: {event_link}"
