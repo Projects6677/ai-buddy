@@ -397,28 +397,17 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if current_state:
         if current_state == "awaiting_reminder_text":
-            intent_data = route_user_intent(user_text)
-            if intent_data.get("intent") == "set_reminder":
-                reminders_to_set = intent_data.get("entities", [])
-                
-                if isinstance(reminders_to_set, list) and reminders_to_set:
-                    confirmations = []
-                    for rem in reminders_to_set:
-                        task = rem.get("task")
-                        time_expression = rem.get("time_expression")
-                        recurrence = rem.get("recurrence")
-                        conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
-                        confirmations.append(conf)
-                    
-                    send_message(sender_number, f"✅ Successfully set {len(confirmations)} reminders for you.")
-                else:
-                    send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
-
-            else:
-                send_message(sender_number, "I didn't understand that as a reminder. Please try again, for example: 'Call mom tomorrow at 5pm'")
+            # --- MODIFICATION: SCHEDULE A BACKGROUND JOB FOR PROCESSING ---
+            send_message(sender_number, "Got it! I'm working on scheduling your reminders. This might take a moment...")
+            scheduler.add_job(
+                func=process_and_schedule_reminders,
+                trigger='date',
+                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
+                args=[user_text, sender_number]
+            )
             set_user_session(sender_number, None)
             return
-        
+
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
@@ -593,15 +582,34 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
+    elif user_text == "9":
+        response_text = get_all_reminders(sender_number, scheduler)
+        send_message(sender_number, response_text)
+        return
     elif user_text == "2":
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
         return
     # ... (other menu button logic) ...
 
+    # --- MODIFICATION: SCHEDULE A BACKGROUND JOB FOR PROCESSING ---
     send_message(sender_number, "🤖 Analyzing...")
+    scheduler.add_job(
+        func=process_natural_language_request,
+        trigger='date',
+        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+        args=[user_text, sender_number]
+    )
+
+
+# === UI, HELPERS, & LOGIC FUNCTIONS ===
+
+# --- NEW BACKGROUND PROCESSING FUNCTION ---
+def process_natural_language_request(user_text, sender_number):
+    """
+    This function runs in the background to handle long AI calls, preventing webhook timeouts.
+    """
     intent_data = route_user_intent(user_text)
-    
     intent = intent_data.get("intent")
     entities = intent_data.get("entities")
     response_text = ""
@@ -616,7 +624,11 @@ def handle_text_message(user_text, sender_number, session_data):
                 recurrence = rem.get("recurrence")
                 conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
                 confirmations.append(conf)
-            response_text = f"✅ Successfully set {len(confirmations)} reminders for you."
+            # Send individual confirmations for clarity
+            for conf in confirmations:
+                send_message(sender_number, conf)
+                time.sleep(0.5) # Small delay between messages
+            return # Exit after sending confirmations
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
 
@@ -637,6 +649,9 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_message(sender_number, "You have no expenses to export yet.")
         return 
+
+    elif intent == "get_reminders":
+        response_text = get_all_reminders(sender_number, scheduler)
 
     elif intent == "convert_currency":
         if entities:
@@ -659,7 +674,6 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, response_text)
 
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
 
@@ -756,6 +770,11 @@ def send_daily_briefing():
         detailed_history = briefing_content.get("detailed_history", "No historical fact found for today.")
         detailed_weather = briefing_content.get("detailed_weather", "Weather data is currently unavailable.")
         
+        # Sanitize content for WhatsApp templates
+        quote_explanation = quote_explanation.replace('\n', ' ')
+        detailed_history = detailed_history.replace('\n', ' ')
+        detailed_weather = detailed_weather.replace('\n', ' ')
+
         template_name = "daily_briefing_v3" 
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
@@ -790,6 +809,11 @@ def send_test_briefing(developer_number):
     quote_explanation = briefing_content.get("quote_explanation", "Test explanation.")
     detailed_history = briefing_content.get("detailed_history", "Test history.")
     detailed_weather = briefing_content.get("detailed_weather", "Test weather.")
+
+    # Sanitize content for WhatsApp templates
+    quote_explanation = quote_explanation.replace('\n', ' ')
+    detailed_history = detailed_history.replace('\n', ' ')
+    detailed_weather = detailed_weather.replace('\n', ' ')
 
     template_name = "daily_briefing_v3"
     components = [
