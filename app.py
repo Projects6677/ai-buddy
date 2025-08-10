@@ -307,7 +307,7 @@ def handle_document_message(message, sender_number, session_data):
 
         analysis = analyze_document_context(extracted_text)
         if not analysis:
-            send_message(sender_number, "🤔 I analyzed the document, but I'm not sure what to do with it.")
+            send_message(sender_number, "� I analyzed the document, but I'm not sure what to do with it.")
             set_user_session(sender_number, None)
             return
             
