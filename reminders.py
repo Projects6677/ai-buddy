@@ -8,6 +8,31 @@ from google_calendar_integration import create_google_calendar_event
 import re
 import time
 
+def get_all_reminders(user, scheduler):
+    """
+    Fetches all scheduled jobs for a specific user and formats them into a readable list.
+    """
+    user_jobs = [job for job in scheduler.get_jobs() if job.id.startswith(f"reminder_{user}")]
+
+    if not user_jobs:
+        return "You have no active reminders set."
+
+    tz = pytz.timezone('Asia/Kolkata')
+    reminders_list = ["*Here are your active reminders:*\n"]
+
+    for job in user_jobs:
+        try:
+            # The task is stored in the job's arguments
+            task = job.args[2][0]['parameters'][0]['text']
+            next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
+            reminders_list.append(f"- *{task}* (Next: {next_run})")
+        except (IndexError, KeyError):
+            # Fallback in case the job args are not as expected
+            reminders_list.append("- An older, unreadable reminder.")
+
+    return "\n".join(reminders_list)
+
+
 def parse_recurrence_to_cron(recurrence_rule, start_time):
     """
     Converts a natural language recurrence rule into cron arguments for apscheduler.
