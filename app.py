@@ -661,12 +661,12 @@ def process_natural_language_request(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders for you. I'll send a confirmation for each one.")
             for rem in reminders_to_set:
-                full_text = rem.get("full_text")
-                time_expression = rem.get("time_expression")
-                recurrence = rem.get("recurrence")
-                conf = schedule_reminder(full_text, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
-                send_message(sender_number, conf)
-                time.sleep(1)
+                 task = rem.get("task")
+                 timestamp = rem.get("timestamp")
+                 recurrence = rem.get("recurrence")
+                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
+                 send_message(sender_number, conf)
+                 time.sleep(1)
             return
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
@@ -723,10 +723,10 @@ def process_and_schedule_reminders(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Okay, scheduling {len(reminders_to_set)} reminders. I'll send a confirmation for each.")
             for rem in reminders_to_set:
-                full_text = rem.get("full_text")
-                time_expression = rem.get("time_expression")
+                task = rem.get("task")
+                timestamp = rem.get("timestamp")
                 recurrence = rem.get("recurrence")
-                conf = schedule_reminder(full_text, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, conf)
                 time.sleep(1)
         else:
