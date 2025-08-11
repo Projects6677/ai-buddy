@@ -61,7 +61,7 @@ def send_interactive_menu(to, name):
         "Content-Type": "application/json"
     }
     
-    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today?"
+    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today? You can also type commands like `.reminders` to see your reminders."
 
     data = {
         "messaging_product": "whatsapp",
@@ -76,7 +76,6 @@ def send_interactive_menu(to, name):
                 "button": "Choose an Option",
                 "sections": [{"title": "Main Features","rows": [
                             {"id": "1", "title": "Set a Reminder", "description": "Schedule a one-time or recurring reminder."},
-                            {"id": "reminders_check", "title": "Check Reminders", "description": "See all your active reminders."},
                             {"id": "2", "title": "Fix Grammar", "description": "Correct spelling and grammar."},
                             {"id": "3", "title": "Ask AI Anything", "description": "Chat with the AI assistant."},
                             {"id": "4", "title": "File/Text Conversion", "description": "Convert between PDF and Word."},
