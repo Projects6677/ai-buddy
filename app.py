@@ -98,7 +98,7 @@ def get_user_session(sender_number):
     return user_data.get("session") if user_data else None
 
 def get_all_users_from_db():
-    return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1})
+    return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1, "location": 1})
 
 def delete_all_users_from_db():
     return users_collection.delete_many({})
@@ -195,7 +195,9 @@ def verify():
     if mode == "subscribe" and token == VERIFY_TOKEN: return challenge, 200
     return "Verification failed", 403
 
-def download_media_from_whatsapp(media_id):
+# *** FIX STARTS HERE ***
+# I've added the 'message_type' parameter to help handle different kinds of media.
+def download_media_from_whatsapp(media_id, message_type):
     try:
         url = f"https://graph.facebook.com/v19.0/{media_id}/"
         headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
@@ -203,9 +205,12 @@ def download_media_from_whatsapp(media_id):
         response.raise_for_status()
         media_info = response.json()
         media_url = media_info['url']
-        original_filename = "attached_file"
-        if 'document' in media_info:
-            original_filename = media_info['document'].get('filename', original_filename)
+
+        # This now correctly handles both images and documents without crashing.
+        original_filename = f"media_{media_id}" # A safe default
+        if message_type == 'document' and 'document' in media_info:
+            original_filename = media_info.get('document', {}).get('filename', original_filename)
+
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
         temp_filename = secure_filename(original_filename)
@@ -217,6 +222,7 @@ def download_media_from_whatsapp(media_id):
     except requests.exceptions.RequestException as e:
         print(f"❌ Error downloading media: {e}")
         return None, None
+# *** FIX ENDS HERE ***
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -244,7 +250,8 @@ def webhook():
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, session_data)
         elif msg_type in ["document", "image"]:
-            handle_document_message(message, sender_number, session_data)
+            # We now pass the 'msg_type' to the handler.
+            handle_document_message(message, sender_number, session_data, msg_type)
         else:
             send_message(sender_number, "🤔 Sorry, I can only process text, documents, and images at the moment.")
 
@@ -253,8 +260,10 @@ def webhook():
     return "OK", 200
 
 # === MESSAGE HANDLERS ===
-def handle_document_message(message, sender_number, session_data):
-    media_id = message.get(message['type'], {}).get('id')
+# *** FIX STARTS HERE ***
+# Added 'message_type' to the function definition.
+def handle_document_message(message, sender_number, session_data, message_type):
+    media_id = message.get(message_type, {}).get('id')
     if not media_id:
         send_message(sender_number, "❌ I couldn't find the file in your message.")
         return
@@ -264,7 +273,8 @@ def handle_document_message(message, sender_number, session_data):
         if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
             filename = message.get('document', {}).get('filename', 'attached_file')
             send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-            downloaded_path, _ = download_media_from_whatsapp(media_id)
+            # Pass the message_type to the download function.
+            downloaded_path, _ = download_media_from_whatsapp(media_id, message_type)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -280,7 +290,8 @@ def handle_document_message(message, sender_number, session_data):
         simple_state = session_data if isinstance(session_data, str) else None
 
         if simple_state in ["awaiting_pdf_to_text", "awaiting_pdf_to_docx"]:
-            downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+            # Pass the message_type to the download function.
+            downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
             if not downloaded_path:
                 send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
                 return
@@ -300,7 +311,8 @@ def handle_document_message(message, sender_number, session_data):
             return
 
         send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-        downloaded_path, mime_type = download_media_from_whatsapp(media_id)
+        # Pass the message_type to the download function.
+        downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
         if not downloaded_path:
             send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
             return
@@ -438,18 +450,23 @@ def handle_text_message(user_text, sender_number, session_data):
             set_user_session(sender_number, None)
             return
 
+        # *** FIX STARTS HERE ***
+        # This new logic prevents a recursive loop.
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
+                # If it's not a follow-up, clear the session and let the code
+                # fall through to the main intent router.
                 set_user_session(sender_number, None)
-                handle_text_message(user_text, sender_number, None)
-                return
-            
-            doc_text = session_data.get("document_text")
-            send_message(sender_number, "🤖 Thinking...")
-            response = get_contextual_ai_response(doc_text, user_text)
-            send_message(sender_number, response)
-            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-            return
+            else:
+                # If it IS a follow-up, handle it and then exit the function.
+                doc_text = session_data.get("document_text")
+                send_message(sender_number, "🤖 Thinking...")
+                response = get_contextual_ai_response(doc_text, user_text)
+                send_message(sender_number, response)
+                send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
+                return # Exit here to prevent re-processing
+        # *** FIX ENDS HERE ***
+
 
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
@@ -484,14 +501,25 @@ def handle_text_message(user_text, sender_number, session_data):
             return
         elif current_state == "awaiting_name":
             name = user_text.split()[0].title()
-            create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False})
-            set_user_session(sender_number, None)
+            # *** FIX STARTS HERE ***
+            # Add a location field and prompt the user for it.
+            create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False, "location": None})
+            set_user_session(sender_number, "awaiting_location")
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
+            time.sleep(1)
+            send_message(sender_number, "To provide you with accurate weather in your morning briefings, what city do you live in?")
+            return
+        
+        elif current_state == "awaiting_location":
+            create_or_update_user_in_db(sender_number, {"location": user_text.title()})
+            set_user_session(sender_number, None)
+            send_message(sender_number, f"✅ Great! I've set your location to *{user_text.title()}*.")
             time.sleep(1)
             send_google_auth_link(sender_number)
             time.sleep(2)
-            send_welcome_message(sender_number, name)
+            send_welcome_message(sender_number, get_user_from_db(sender_number).get("name"))
             return
+        # *** FIX ENDS HERE ***
         
         elif current_state == "awaiting_weather":
             response_text = get_weather(user_text)
@@ -618,6 +646,10 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
+    elif user_text == "reminders_check":
+        reminders = get_all_reminders(sender_number, scheduler)
+        send_reminders_list(sender_number, reminders)
+        return
     elif user_text == "2":
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
@@ -657,12 +689,12 @@ def process_natural_language_request(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders for you. I'll send a confirmation for each one.")
             for rem in reminders_to_set:
-                task = rem.get("task")
-                timestamp = rem.get("timestamp")
-                recurrence = rem.get("recurrence")
-                conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
-                send_message(sender_number, conf)
-                time.sleep(1)
+                 task = rem.get("task")
+                 timestamp = rem.get("timestamp")
+                 recurrence = rem.get("recurrence")
+                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
+                 send_message(sender_number, conf)
+                 time.sleep(1)
             return
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
@@ -812,12 +844,16 @@ def send_daily_briefing():
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
-    weather_data = get_raw_weather_data()
-
+    
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
         user_id = user["_id"]
         user_name = user.get("name", "there")
+        # *** FIX STARTS HERE ***
+        # Fetch the user's location, with a fallback.
+        user_location = user.get("location", "Vijayawada") 
+        weather_data = get_raw_weather_data(city=user_location)
+        # *** FIX ENDS HERE ***
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
@@ -856,8 +892,10 @@ def send_test_briefing(developer_number):
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
-    weather_data = get_raw_weather_data()
     user_name = user.get("name", "Developer")
+    # Fetch weather for the specific user's location.
+    user_location = user.get("location", "Vijayawada")
+    weather_data = get_raw_weather_data(city=user_location)
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     
