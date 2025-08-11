@@ -43,7 +43,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation
 from document_processor import get_text_from_file
 from weather import get_weather
 
@@ -338,6 +338,25 @@ def handle_text_message(user_text, sender_number, session_data):
     menu_commands = ["start", "menu", "help", "options", "0"]
     greetings = ["hi", "hello", "hey"]
     
+    if user_text.startswith("delete_reminder_"):
+        job_id_to_delete = user_text.split("delete_reminder_")[1]
+        reminders = get_all_reminders(sender_number, scheduler)
+        task_to_delete = next((rem['task'] for rem in reminders if rem['id'] == job_id_to_delete), "this reminder")
+        send_delete_confirmation(sender_number, job_id_to_delete, task_to_delete)
+        return
+
+    if user_text.startswith("confirm_delete_"):
+        job_id_to_delete = user_text.split("confirm_delete_")[1]
+        if delete_reminder(job_id_to_delete, scheduler):
+            send_message(sender_number, "✅ Reminder successfully deleted.")
+        else:
+            send_message(sender_number, "❌ Could not delete the reminder. It might have already been removed.")
+        return
+    
+    if user_text == "cancel_delete":
+        send_message(sender_number, "Deletion cancelled.")
+        return
+
     if user_text.startswith("."):
         if user_text.startswith(".dev"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
