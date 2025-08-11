@@ -79,21 +79,20 @@ def parse_recurrence_to_cron(recurrence_rule, start_time):
     return cron_args if cron_args else None
 
 
-def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_creds_func, scheduler):
+def schedule_reminder(task, timestamp, recurrence_rule, user, get_creds_func, scheduler):
     """
-    Schedules a one-time or recurring reminder.
+    Schedules a one-time or recurring reminder using a pre-parsed timestamp.
     """
-    if not time_expression:
+    if not timestamp:
         return "❌ I couldn't understand the time for the reminder. Please try being more specific."
 
-    # --- MODIFICATION: SMARTER TASK EXTRACTION ---
-    # The task is the original text with the time expression and "remind me to" removed.
-    task = full_text.lower().replace(time_expression.lower(), "").replace("remind me to", "").strip()
+    # Task is now provided directly by the AI, so no more manual extraction.
     if not task:
-        task = "Reminder" # Fallback if the task is empty after stripping
+        task = "Reminder" # Fallback if the AI fails to extract a task.
 
     try:
-        start_time = date_parser.parse(time_expression, fuzzy=True)
+        # The timestamp is expected in 'YYYY-MM-DD HH:MM:SS' format from the AI
+        start_time = date_parser.parse(timestamp)
         tz = pytz.timezone('Asia/Kolkata')
 
         if start_time.tzinfo is None:
@@ -102,7 +101,8 @@ def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_cre
         now = datetime.now(tz)
         
         template_name = "reminder_alert"
-        components = [{"type": "body", "parameters": [{"type": "text", "text": task}]}]
+        # The task is already clean, so we can use it directly.
+        components = [{"type": "body", "parameters": [{"type": "text", "text": task.capitalize()}]}]
         
         job_id = f"reminder_{user}_{int(time.time())}"
         
@@ -122,11 +122,9 @@ def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_cre
             next_run = job.next_run_time.astimezone(tz).strftime('%A, %b %d at %I:%M %p')
             base_confirmation = f"✅ Recurring reminder set for '{task}' ({recurrence_rule}).\n\nThe next one is on *{next_run}*."
         else:
+            # The AI should have already resolved past times, but this is a good safeguard.
             if start_time < now:
-                if start_time.date() == now.date():
-                    start_time += timedelta(days=1)
-                else:
-                    return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
+                 return f"❌ The time you provided ({start_time.strftime('%A, %b %d at %I:%M %p')}) is in the past."
             
             job = scheduler.add_job(
                 func=send_template_message,
@@ -153,7 +151,8 @@ def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_cre
         return f"{base_confirmation}{gcal_confirmation}{event_link_text}"
 
     except date_parser.ParserError:
-        return f"❌ Sorry, I had trouble understanding the date and time '{time_expression}'. Please try a different format."
+        # This error is now much less likely.
+        return f"❌ Sorry, I received an invalid date and time format: '{timestamp}'. Please try rephrasing."
     except Exception as e:
         print(f"Reminder scheduling error: {e}")
         return "❌ An unexpected error occurred while setting your reminder."
