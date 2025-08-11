@@ -618,10 +618,6 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
-    elif user_text == "reminders_check":
-        reminders = get_all_reminders(sender_number, scheduler)
-        send_reminders_list(sender_number, reminders)
-        return
     elif user_text == "2":
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
@@ -661,12 +657,12 @@ def process_natural_language_request(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders for you. I'll send a confirmation for each one.")
             for rem in reminders_to_set:
-                 task = rem.get("task")
-                 timestamp = rem.get("timestamp")
-                 recurrence = rem.get("recurrence")
-                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
-                 send_message(sender_number, conf)
-                 time.sleep(1)
+                task = rem.get("task")
+                timestamp = rem.get("timestamp")
+                recurrence = rem.get("recurrence")
+                conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
+                send_message(sender_number, conf)
+                time.sleep(1)
             return
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
