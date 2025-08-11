@@ -392,6 +392,11 @@ def handle_text_message(user_text, sender_number, session_data):
         elif user_text.lower() == ".reconnect":
             send_google_auth_link(sender_number)
             return
+        
+        elif user_text.lower() == ".reminders":
+            reminders = get_all_reminders(sender_number, scheduler)
+            send_reminders_list(sender_number, reminders)
+            return
 
     current_state = session_data if isinstance(session_data, str) else (session_data.get("state") if isinstance(session_data, dict) else None)
 
