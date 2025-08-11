@@ -93,7 +93,7 @@ def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_cre
         task = "Reminder" # Fallback if the task is empty after stripping
 
     try:
-        start_time = date_parser.parse(time_expression)
+        start_time = date_parser.parse(time_expression, fuzzy=True)
         tz = pytz.timezone('Asia/Kolkata')
 
         if start_time.tzinfo is None:
