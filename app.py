@@ -589,7 +589,18 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
         return
-    # ... (other menu button logic) ...
+    elif user_text == "6":
+        set_user_session(sender_number, "awaiting_weather")
+        send_message(sender_number, "🏙️ Enter a city or location to get the current weather.")
+        return
+    elif user_text == "8":
+        creds = get_credentials_from_db(sender_number)
+        if creds:
+            set_user_session(sender_number, "awaiting_email_recipient")
+            send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
+        else:
+            send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
+        return
 
     send_message(sender_number, "🤖 Analyzing...")
     scheduler.add_job(
@@ -602,9 +613,6 @@ def handle_text_message(user_text, sender_number, session_data):
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
 def process_natural_language_request(user_text, sender_number):
-    """
-    This function now runs immediately to handle AI calls, preventing webhook timeouts.
-    """
     intent_data = route_user_intent(user_text)
     intent = intent_data.get("intent")
     entities = intent_data.get("entities")
@@ -670,9 +678,6 @@ def process_natural_language_request(user_text, sender_number):
         send_message(sender_number, response_text)
 
 def process_and_schedule_reminders(user_text, sender_number):
-    """
-    This function specifically handles processing reminders in the background.
-    """
     intent_data = route_user_intent(user_text)
     if intent_data.get("intent") == "set_reminder":
         reminders_to_set = intent_data.get("entities", [])
