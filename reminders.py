@@ -25,7 +25,6 @@ def get_all_reminders(user, scheduler):
             task = job.args[2][0]['parameters'][0]['text']
             next_run = job.next_run_time.astimezone(tz).strftime('%a, %b %d at %I:%M %p')
             
-            # Check if the job is recurring by looking at its trigger
             is_recurring = "Recurring" if hasattr(job.trigger, 'start_date') or type(job.trigger).__name__ == 'CronTrigger' else "One-Time"
 
             reminders_list.append({
@@ -35,7 +34,7 @@ def get_all_reminders(user, scheduler):
                 "type": is_recurring
             })
         except (IndexError, KeyError, AttributeError):
-            continue # Skip malformed or old jobs
+            continue
 
     return reminders_list
 
@@ -80,15 +79,18 @@ def parse_recurrence_to_cron(recurrence_rule, start_time):
     return cron_args if cron_args else None
 
 
-def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_func, scheduler):
+def schedule_reminder(full_text, time_expression, recurrence_rule, user, get_creds_func, scheduler):
     """
     Schedules a one-time or recurring reminder.
     """
     if not time_expression:
         return "❌ I couldn't understand the time for the reminder. Please try being more specific."
 
+    # --- MODIFICATION: SMARTER TASK EXTRACTION ---
+    # The task is the original text with the time expression and "remind me to" removed.
+    task = full_text.lower().replace(time_expression.lower(), "").replace("remind me to", "").strip()
     if not task:
-        task = "Reminder"
+        task = "Reminder" # Fallback if the task is empty after stripping
 
     try:
         start_time = date_parser.parse(time_expression)
@@ -109,9 +111,6 @@ def schedule_reminder(task, time_expression, recurrence_rule, user, get_creds_fu
         base_confirmation = ""
 
         if cron_args:
-            if start_time < now and 'every month' in recurrence_rule.lower():
-                cron_args['start_date'] = now + relativedelta(months=1)
-
             job = scheduler.add_job(
                 func=send_template_message,
                 trigger='cron',
