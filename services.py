@@ -62,16 +62,21 @@ def get_on_this_day_in_history():
         print(f"On This Day in History error: {e}")
         return [{"text": "Could not retrieve a historical fact for today."}]
 
+# *** FIX STARTS HERE ***
+# The function now takes a 'city' parameter.
 def get_raw_weather_data(city="Vijayawada"):
     """Fetches raw weather data from OpenWeatherMap."""
     api_key = os.environ.get("OPENWEATHER_API_KEY")
     if not api_key:
         return None
     try:
+        # The URL now uses the 'city' variable.
         url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
         response = requests.get(url)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Briefing weather error: {e}")
+        # The error message now includes the city for easier debugging.
+        print(f"Briefing weather error for city {city}: {e}")
         return None
+# *** FIX ENDS HERE ***
