@@ -68,7 +68,7 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
 client = MongoClient(MONGO_URI)
 db = client.ai_buddy_db
 users_collection = db.users
-jobs_collection = db.scheduled_jobs # Collection for scheduler jobs
+jobs_collection = db.scheduled_jobs
 
 jobstores = {
     'default': MongoDBJobStore(client=client, database="ai_buddy_db", collection="scheduled_jobs")
@@ -103,7 +103,6 @@ def get_all_users_from_db():
 def delete_all_users_from_db():
     return users_collection.delete_many({})
 
-# --- MODIFICATION: NEW FUNCTION TO DELETE ALL JOBS ---
 def delete_all_scheduled_jobs_from_db():
     """Deletes all scheduled jobs from the database."""
     return jobs_collection.delete_many({})
@@ -401,12 +400,10 @@ def handle_text_message(user_text, sender_number, session_data):
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
-            # --- MODIFICATION: DELETE BOTH USERS AND JOBS ---
             user_result = delete_all_users_from_db()
-            job_result = delete_all_scheduled_jobs_from_db()
+            scheduler.remove_all_jobs()
             user_count = user_result.deleted_count
-            job_count = job_result.deleted_count
-            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and {job_count} reminder(s). The bot has been reset.")
+            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
             return
 
         elif user_text.lower() == ".stats":
@@ -494,6 +491,12 @@ def handle_text_message(user_text, sender_number, session_data):
             send_google_auth_link(sender_number)
             time.sleep(2)
             send_welcome_message(sender_number, name)
+            return
+        
+        elif current_state == "awaiting_weather":
+            response_text = get_weather(user_text)
+            set_user_session(sender_number, None)
+            send_message(sender_number, response_text)
             return
 
         if isinstance(session_data, dict):
@@ -658,10 +661,10 @@ def process_natural_language_request(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders for you. I'll send a confirmation for each one.")
             for rem in reminders_to_set:
-                task = rem.get("task")
+                full_text = rem.get("full_text")
                 time_expression = rem.get("time_expression")
                 recurrence = rem.get("recurrence")
-                conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                conf = schedule_reminder(full_text, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, conf)
                 time.sleep(1)
             return
@@ -720,10 +723,10 @@ def process_and_schedule_reminders(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Okay, scheduling {len(reminders_to_set)} reminders. I'll send a confirmation for each.")
             for rem in reminders_to_set:
-                task = rem.get("task")
+                full_text = rem.get("full_text")
                 time_expression = rem.get("time_expression")
                 recurrence = rem.get("recurrence")
-                conf = schedule_reminder(task, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
+                conf = schedule_reminder(full_text, time_expression, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, conf)
                 time.sleep(1)
         else:
