@@ -68,6 +68,7 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
 client = MongoClient(MONGO_URI)
 db = client.ai_buddy_db
 users_collection = db.users
+jobs_collection = db.scheduled_jobs # Collection for scheduler jobs
 
 jobstores = {
     'default': MongoDBJobStore(client=client, database="ai_buddy_db", collection="scheduled_jobs")
@@ -101,6 +102,11 @@ def get_all_users_from_db():
 
 def delete_all_users_from_db():
     return users_collection.delete_many({})
+
+# --- MODIFICATION: NEW FUNCTION TO DELETE ALL JOBS ---
+def delete_all_scheduled_jobs_from_db():
+    """Deletes all scheduled jobs from the database."""
+    return jobs_collection.delete_many({})
 
 def count_users_in_db():
     return users_collection.count_documents({})
@@ -394,9 +400,13 @@ def handle_text_message(user_text, sender_number, session_data):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            result = delete_all_users_from_db()
-            count = result.deleted_count
-            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {count} user(s) from the database. The bot has been reset.")
+            
+            # --- MODIFICATION: DELETE BOTH USERS AND JOBS ---
+            user_result = delete_all_users_from_db()
+            job_result = delete_all_scheduled_jobs_from_db()
+            user_count = user_result.deleted_count
+            job_count = job_result.deleted_count
+            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and {job_count} reminder(s). The bot has been reset.")
             return
 
         elif user_text.lower() == ".stats":
