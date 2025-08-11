@@ -89,13 +89,13 @@ def route_user_intent(text):
     You are an expert AI routing system for a WhatsApp assistant. Your job is to analyze the user's text and classify it into one of the predefined intents.
     You MUST respond with a JSON object containing two keys: "intent" and "entities".
 
-    The current date is: {datetime.now().strftime('%Y-%m-%d %A')}
+    The current date is: {datetime.now().strftime('%Y-%m-%d %A, %H:%M:%S')}
 
     Here are the possible intents and the required entities for each:
 
     1. "set_reminder":
        - Triggered by requests to be reminded of something.
-       - "entities": An ARRAY of objects, each with {{"full_text": "The user's complete reminder request", "time_expression": "The part of the text specifying the time, e.g., 'tomorrow at 4pm'", "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"}}
+       - "entities": An ARRAY of objects, each with {{"task": "The core task of the reminder, e.g., 'call John'", "timestamp": "The fully resolved date and time for the reminder in 'YYYY-MM-DD HH:MM:SS' format. You MUST resolve relative times like '8pm today' or 'tomorrow at 4pm' based on the current date.", "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"}}
 
     2. "get_reminders":
        - Triggered by requests to see, check, show, or list all active reminders.
