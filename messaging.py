@@ -94,7 +94,6 @@ def send_interactive_menu(to, name):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
-# --- NEW INTERACTIVE REMINDER LIST ---
 def send_reminders_list(to, reminders):
     """Sends an interactive list of reminders with a delete button for each."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
@@ -107,12 +106,11 @@ def send_reminders_list(to, reminders):
         send_message(to, "You have no active reminders set.")
         return
 
-    # WhatsApp lists are limited to 10 rows per section
     reminder_rows = []
     for rem in reminders[:10]:
         reminder_rows.append({
             "id": f"delete_reminder_{rem['id']}",
-            "title": rem['task'][:24], # Title is limited to 24 chars
+            "title": rem['task'][:24],
             "description": f"Next: {rem['next_run']} ({rem['type']})"
         })
 
@@ -136,6 +134,48 @@ def send_reminders_list(to, reminders):
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send reminders list to {to}: {e.response.text if e.response else e}")
+
+# --- NEW INTERACTIVE CONFIRMATION ---
+def send_delete_confirmation(to, job_id, task_name):
+    """Sends a yes/no confirmation message for deleting a reminder."""
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": f"Are you sure you want to delete the reminder for:\n\n*{task_name}*?"
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"confirm_delete_{job_id}",
+                            "title": "Yes, Delete"
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "cancel_delete",
+                            "title": "No, Cancel"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    try:
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send delete confirmation to {to}: {e.response.text if e.response else e}")
 
 
 def send_conversion_menu(to):
