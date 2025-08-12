@@ -195,8 +195,6 @@ def verify():
     if mode == "subscribe" and token == VERIFY_TOKEN: return challenge, 200
     return "Verification failed", 403
 
-# *** FIX STARTS HERE ***
-# I've added the 'message_type' parameter to help handle different kinds of media.
 def download_media_from_whatsapp(media_id, message_type):
     try:
         url = f"https://graph.facebook.com/v19.0/{media_id}/"
@@ -206,8 +204,7 @@ def download_media_from_whatsapp(media_id, message_type):
         media_info = response.json()
         media_url = media_info['url']
 
-        # This now correctly handles both images and documents without crashing.
-        original_filename = f"media_{media_id}" # A safe default
+        original_filename = f"media_{media_id}"
         if message_type == 'document' and 'document' in media_info:
             original_filename = media_info.get('document', {}).get('filename', original_filename)
 
@@ -222,7 +219,6 @@ def download_media_from_whatsapp(media_id, message_type):
     except requests.exceptions.RequestException as e:
         print(f"❌ Error downloading media: {e}")
         return None, None
-# *** FIX ENDS HERE ***
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -250,7 +246,6 @@ def webhook():
             user_text = message["text"]["body"].strip()
             handle_text_message(user_text, sender_number, session_data)
         elif msg_type in ["document", "image"]:
-            # We now pass the 'msg_type' to the handler.
             handle_document_message(message, sender_number, session_data, msg_type)
         else:
             send_message(sender_number, "🤔 Sorry, I can only process text, documents, and images at the moment.")
@@ -260,8 +255,6 @@ def webhook():
     return "OK", 200
 
 # === MESSAGE HANDLERS ===
-# *** FIX STARTS HERE ***
-# Added 'message_type' to the function definition.
 def handle_document_message(message, sender_number, session_data, message_type):
     media_id = message.get(message_type, {}).get('id')
     if not media_id:
@@ -273,7 +266,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
         if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
             filename = message.get('document', {}).get('filename', 'attached_file')
             send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-            # Pass the message_type to the download function.
             downloaded_path, _ = download_media_from_whatsapp(media_id, message_type)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
@@ -290,7 +282,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
         simple_state = session_data if isinstance(session_data, str) else None
 
         if simple_state in ["awaiting_pdf_to_text", "awaiting_pdf_to_docx"]:
-            # Pass the message_type to the download function.
             downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
             if not downloaded_path:
                 send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
@@ -311,7 +302,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
             return
 
         send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-        # Pass the message_type to the download function.
         downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
         if not downloaded_path:
             send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
@@ -450,23 +440,16 @@ def handle_text_message(user_text, sender_number, session_data):
             set_user_session(sender_number, None)
             return
 
-        # *** FIX STARTS HERE ***
-        # This new logic prevents a recursive loop.
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
-                # If it's not a follow-up, clear the session and let the code
-                # fall through to the main intent router.
                 set_user_session(sender_number, None)
             else:
-                # If it IS a follow-up, handle it and then exit the function.
                 doc_text = session_data.get("document_text")
                 send_message(sender_number, "🤖 Thinking...")
                 response = get_contextual_ai_response(doc_text, user_text)
                 send_message(sender_number, response)
                 send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-                return # Exit here to prevent re-processing
-        # *** FIX ENDS HERE ***
-
+                return
 
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
@@ -501,8 +484,6 @@ def handle_text_message(user_text, sender_number, session_data):
             return
         elif current_state == "awaiting_name":
             name = user_text.split()[0].title()
-            # *** FIX STARTS HERE ***
-            # Add a location field and prompt the user for it.
             create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False, "location": None})
             set_user_session(sender_number, "awaiting_location")
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
@@ -519,7 +500,6 @@ def handle_text_message(user_text, sender_number, session_data):
             time.sleep(2)
             send_welcome_message(sender_number, get_user_from_db(sender_number).get("name"))
             return
-        # *** FIX ENDS HERE ***
         
         elif current_state == "awaiting_weather":
             response_text = get_weather(user_text)
@@ -646,17 +626,27 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
-    elif user_text == "reminders_check":
-        reminders = get_all_reminders(sender_number, scheduler)
-        send_reminders_list(sender_number, reminders)
-        return
     elif user_text == "2":
         set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
         return
+    elif user_text == "3":
+        set_user_session(sender_number, "awaiting_ai")
+        send_message(sender_number, "🤖 I'm ready! Ask me anything, and I'll do my best to answer.")
+        return
+    elif user_text == "4":
+        send_conversion_menu(sender_number)
+        return
+    elif user_text == "5":
+        set_user_session(sender_number, "awaiting_translation")
+        send_message(sender_number, "🌍 What text would you like to translate, and to which language? (e.g., 'Hello how are you to Spanish')")
+        return
     elif user_text == "6":
         set_user_session(sender_number, "awaiting_weather")
         send_message(sender_number, "🏙️ Enter a city or location to get the current weather.")
+        return
+    elif user_text == "7":
+        send_message(sender_number, "💱 What would you like to convert? (e.g., '100 USD to INR')")
         return
     elif user_text == "8":
         creds = get_credentials_from_db(sender_number)
@@ -665,6 +655,26 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
         else:
             send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
+        return
+    elif user_text == "reminders_check":
+        reminders = get_all_reminders(sender_number, scheduler)
+        send_reminders_list(sender_number, reminders)
+        return
+    elif user_text == "conv_pdf_to_text":
+        set_user_session(sender_number, "awaiting_pdf_to_text")
+        send_message(sender_number, "📄 Please send the PDF file you want to convert to text.")
+        return
+    elif user_text == "conv_text_to_pdf":
+        set_user_session(sender_number, "awaiting_text_to_pdf")
+        send_message(sender_number, "📝 Please send the text you want to convert into a PDF document.")
+        return
+    elif user_text == "conv_pdf_to_word":
+        set_user_session(sender_number, "awaiting_pdf_to_docx")
+        send_message(sender_number, "📄 Please send the PDF file you want to convert to a Word document.")
+        return
+    elif user_text == "conv_text_to_word":
+        set_user_session(sender_number, "awaiting_text_to_word")
+        send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
         return
 
     send_message(sender_number, "🤖 Analyzing...")
@@ -849,11 +859,8 @@ def send_daily_briefing():
     for user in all_users:
         user_id = user["_id"]
         user_name = user.get("name", "there")
-        # *** FIX STARTS HERE ***
-        # Fetch the user's location, with a fallback.
         user_location = user.get("location", "Vijayawada") 
         weather_data = get_raw_weather_data(city=user_location)
-        # *** FIX ENDS HERE ***
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
@@ -862,7 +869,6 @@ def send_daily_briefing():
         detailed_history = briefing_content.get("detailed_history", "No historical fact found for today.")
         detailed_weather = briefing_content.get("detailed_weather", "Weather data is currently unavailable.")
         
-        # Sanitize content for WhatsApp templates
         quote_explanation = quote_explanation.replace('\n', ' ')
         detailed_history = detailed_history.replace('\n', ' ')
         detailed_weather = detailed_weather.replace('\n', ' ')
@@ -893,7 +899,6 @@ def send_test_briefing(developer_number):
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     user_name = user.get("name", "Developer")
-    # Fetch weather for the specific user's location.
     user_location = user.get("location", "Vijayawada")
     weather_data = get_raw_weather_data(city=user_location)
 
@@ -904,7 +909,6 @@ def send_test_briefing(developer_number):
     detailed_history = briefing_content.get("detailed_history", "Test history.")
     detailed_weather = briefing_content.get("detailed_weather", "Test weather.")
 
-    # Sanitize content for WhatsApp templates
     quote_explanation = quote_explanation.replace('\n', ' ')
     detailed_history = detailed_history.replace('\n', ' ')
     detailed_weather = detailed_weather.replace('\n', ' ')
