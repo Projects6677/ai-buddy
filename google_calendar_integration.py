@@ -10,7 +10,8 @@ CLIENT_SECRETS_FILE = 'client_secret.json'
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send'
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/drive'
 ]
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")
 
