@@ -43,7 +43,7 @@ from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
 from weather import get_weather
 
@@ -654,6 +654,13 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
         else:
             send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
+        return
+    elif user_text == "9":
+        creds = get_credentials_from_db(sender_number)
+        if creds:
+            send_google_drive_menu(sender_number)
+        else:
+            send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
         return
     elif user_text == "reminders_check":
         reminders = get_all_reminders(sender_number, scheduler)
