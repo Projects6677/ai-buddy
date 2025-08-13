@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import pickle
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+import mimetypes
 
 
 from currency import convert_currency
@@ -42,7 +43,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from google_drive import upload_file_to_drive, search_files_in_drive # Updated import
+from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content # Updated import
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -214,7 +215,6 @@ def download_media_from_whatsapp(media_id, message_payload):
             ext = mimetypes.guess_extension(media_info.get('mime_type', '')) or '.jpg'
             original_filename = f"whatsapp_image_{media_id}{ext}"
 
-
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
         
@@ -299,9 +299,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
             return
 
         if simple_state == "awaiting_email_attachment":
-            filename = message.get('document', {}).get('filename', 'attached_file')
-            send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message)
+            downloaded_path, original_filename, _ = download_media_from_whatsapp(media_id, message)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -466,6 +464,42 @@ def handle_text_message(user_text, sender_number, session_data):
         current_state = session_data
 
     if current_state:
+        if current_state == "awaiting_drive_analysis_query":
+            send_message(sender_number, f"📄 Analyzing '*{user_text}*' from your Google Drive. This may take a moment...")
+            creds = get_credentials_from_db(sender_number)
+            if creds:
+                analysis_result = analyze_drive_file_content(creds, user_text)
+                error = analysis_result.get("error")
+                if error:
+                    send_message(sender_number, error)
+                    set_user_session(sender_number, None)
+                else:
+                    new_session = {
+                        "state": "awaiting_document_question",
+                        "document_text": analysis_result.get("document_text"),
+                        "doc_type": analysis_result.get("doc_type"),
+                        "data": analysis_result.get("data", {})
+                    }
+                    set_user_session(sender_number, new_session)
+
+                    doc_type = new_session["doc_type"]
+                    data = new_session["data"]
+                    if doc_type == "resume":
+                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
+                    elif doc_type == "project_plan":
+                        response = "I've read the project plan from your Drive. You can now ask me questions about it."
+                    elif doc_type == "meeting_invite":
+                        task = data.get("task", "this event")
+                        response = f"I see this is an invitation for '{task}' from your Drive. Would you like me to schedule it?"
+                    else:
+                        response = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
+                    send_message(sender_number, response)
+
+            else:
+                send_message(sender_number, "❌ Could not analyze. Your Google account is not connected.")
+                set_user_session(sender_number, None)
+            return
+
         if current_state == "awaiting_drive_search_query":
             send_message(sender_number, f"🔎 Searching for '*{user_text}*' in your Google Drive...")
             creds = get_credentials_from_db(sender_number)
@@ -491,6 +525,7 @@ def handle_text_message(user_text, sender_number, session_data):
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
+                # Fall through to the main menu logic
             else:
                 doc_text = session_data.get("document_text")
                 send_message(sender_number, "🤖 Thinking...")
@@ -654,6 +689,8 @@ def handle_text_message(user_text, sender_number, session_data):
                 else:
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
+    
+    # --- Fallthrough to Main Menu Logic if no state is active ---
         
     if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
         set_user_session(sender_number, None)
@@ -736,6 +773,10 @@ def handle_text_message(user_text, sender_number, session_data):
     elif user_text == "drive_search_file":
         set_user_session(sender_number, "awaiting_drive_search_query")
         send_message(sender_number, "📝 What are you searching for? Please provide a file name or keyword.")
+        return
+    elif user_text == "drive_analyze_file":
+        set_user_session(sender_number, "awaiting_drive_analysis_query")
+        send_message(sender_number, "📝 What is the exact name of the file you want to analyze?")
         return
 
 
