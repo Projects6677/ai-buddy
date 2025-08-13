@@ -60,3 +60,34 @@ def upload_file_to_drive(credentials, file_path, original_filename, mime_type):
     except Exception as e:
         print(f"An unexpected error occurred during file upload: {e}")
         return "❌ An unexpected error occurred while uploading the file."
+
+def search_files_in_drive(credentials, search_query):
+    """Searches for files in the user's Google Drive."""
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        
+        # Construct the search query
+        query = f"name contains '{search_query}' and trashed=false"
+        
+        # Search for files
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name, webViewLink, iconLink)', pageSize=10).execute()
+        files = response.get('files', [])
+
+        if not files:
+            return f"😕 No files found matching your search for '*{search_query}*'."
+
+        # Format the results
+        results_message = f"🔎 Here are the top results for '*{search_query}*':\n\n"
+        for file in files:
+            file_name = file.get('name')
+            file_link = file.get('webViewLink')
+            results_message += f"📄 *{file_name}*\n🔗 [View File]({file_link})\n\n"
+        
+        return results_message.strip()
+
+    except HttpError as error:
+        print(f"An HTTP error occurred during file search: {error}")
+        return "❌ Failed to search for files due to an API error."
+    except Exception as e:
+        print(f"An unexpected error occurred during file search: {e}")
+        return "❌ An unexpected error occurred while searching for files."
