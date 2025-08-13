@@ -42,7 +42,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from google_drive import upload_file_to_drive # New import
+from google_drive import upload_file_to_drive, search_files_in_drive # Updated import
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -196,7 +196,7 @@ def verify():
     if mode == "subscribe" and token == VERIFY_TOKEN: return challenge, 200
     return "Verification failed", 403
 
-def download_media_from_whatsapp(media_id, message_type):
+def download_media_from_whatsapp(media_id, message_payload):
     try:
         url = f"https://graph.facebook.com/v19.0/{media_id}/"
         headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
@@ -204,30 +204,27 @@ def download_media_from_whatsapp(media_id, message_type):
         response.raise_for_status()
         media_info = response.json()
         media_url = media_info['url']
-
-        original_filename = f"media_{media_id}"
-        if message_type == 'document':
-             # Prefer the filename from the document payload if available
-            original_filename = message.get('document', {}).get('filename', original_filename)
         
-        # A fallback for images or documents without a name
-        if original_filename == f"media_{media_id}":
-            ext = mimetypes.guess_extension(media_info.get('mime_type', '')) or ''
-            original_filename = f"whatsapp_file_{media_id}{ext}"
+        message_type = message_payload.get("type")
+        original_filename = f"media_{media_id}"
+
+        if message_type == 'document':
+            original_filename = message_payload.get('document', {}).get('filename', original_filename)
+        elif message_type == 'image':
+            ext = mimetypes.guess_extension(media_info.get('mime_type', '')) or '.jpg'
+            original_filename = f"whatsapp_image_{media_id}{ext}"
 
 
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
         
-        # We use the original filename now, secured.
         temp_filename = secure_filename(original_filename)
         if not temp_filename:
-            temp_filename = secure_filename(media_id) # Last resort
+            temp_filename = secure_filename(media_id) 
             
         file_path = os.path.join("uploads", temp_filename)
         with open(file_path, "wb") as f: f.write(download_response.content)
         
-        # Return the original (unsecured) filename for use in Drive, and the mime type
         return file_path, original_filename, media_info.get('mime_type')
         
     except requests.exceptions.RequestException as e:
@@ -304,7 +301,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
         if simple_state == "awaiting_email_attachment":
             filename = message.get('document', {}).get('filename', 'attached_file')
             send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message) # We don't need other values here
+            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -469,6 +466,17 @@ def handle_text_message(user_text, sender_number, session_data):
         current_state = session_data
 
     if current_state:
+        if current_state == "awaiting_drive_search_query":
+            send_message(sender_number, f"🔎 Searching for '*{user_text}*' in your Google Drive...")
+            creds = get_credentials_from_db(sender_number)
+            if creds:
+                search_results = search_files_in_drive(creds, user_text)
+                send_message(sender_number, search_results)
+            else:
+                send_message(sender_number, "❌ Could not search. Your Google account is not connected.")
+            set_user_session(sender_number, None)
+            return
+
         if current_state == "awaiting_reminder_text":
             send_message(sender_number, "Got it! I'm working on scheduling your reminders. This might take a moment...")
             scheduler.add_job(
@@ -724,6 +732,10 @@ def handle_text_message(user_text, sender_number, session_data):
     elif user_text == "drive_upload_file":
         set_user_session(sender_number, "awaiting_drive_upload")
         send_message(sender_number, "📎 Please send the file you want to upload to your Google Drive.")
+        return
+    elif user_text == "drive_search_file":
+        set_user_session(sender_number, "awaiting_drive_search_query")
+        send_message(sender_number, "📝 What are you searching for? Please provide a file name or keyword.")
         return
 
 
