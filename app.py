@@ -43,7 +43,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
-from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content # Updated import
+from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -279,6 +279,25 @@ def handle_document_message(message, sender_number, session_data, message_type):
             simple_state = session_data.get("state")
         elif isinstance(session_data, str):
             simple_state = session_data
+
+        # This state is set when the NLP detects a drive upload intent *before* the file is sent
+        if simple_state == "awaiting_drive_upload_nlp":
+            send_message(sender_number, "📥 Got it. Uploading to your Google Drive...")
+            creds = get_credentials_from_db(sender_number)
+            if not creds:
+                send_message(sender_number, "❌ Cannot upload. Your Google account is not connected.")
+                set_user_session(sender_number, None)
+                return
+
+            downloaded_path, original_filename, mime_type = download_media_from_whatsapp(media_id, message)
+            if downloaded_path:
+                upload_status = upload_file_to_drive(creds, downloaded_path, original_filename, mime_type)
+                send_message(sender_number, upload_status)
+            else:
+                send_message(sender_number, "❌ Sorry, I couldn't download your file to upload it.")
+            
+            set_user_session(sender_number, None)
+            return
 
         if simple_state == "awaiting_drive_upload":
             send_message(sender_number, "📥 Got your file. Uploading it to your Google Drive...")
@@ -779,8 +798,8 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "📝 What is the exact name of the file you want to analyze?")
         return
 
-
-    send_message(sender_number, "🤖 Analyzing...")
+    # If no menu option is matched, process as a natural language request
+    send_message(sender_number, "🤖 Analyzing your request...")
     scheduler.add_job(
         func=process_natural_language_request,
         trigger='date',
@@ -796,7 +815,50 @@ def process_natural_language_request(user_text, sender_number):
     entities = intent_data.get("entities")
     response_text = ""
 
-    if intent == "set_reminder":
+    creds = get_credentials_from_db(sender_number)
+    if intent.startswith("drive_") and not creds:
+        send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
+        return
+
+    if intent == "drive_upload_file":
+        set_user_session(sender_number, "awaiting_drive_upload_nlp")
+        send_message(sender_number, "Got it. Please send the file you want to upload to your Drive.")
+        return
+        
+    elif intent == "drive_search_file":
+        query = entities.get("query")
+        if query:
+            send_message(sender_number, f"🔎 Searching for '*{query}*' in your Google Drive...")
+            response_text = search_files_in_drive(creds, query)
+        else:
+            response_text = "I didn't understand what file you want to search for. Please try again."
+
+    elif intent == "drive_analyze_file":
+        filename = entities.get("filename")
+        if filename:
+            send_message(sender_number, f"📄 Analyzing '*{filename}*' from your Drive. This might take a moment...")
+            analysis_result = analyze_drive_file_content(creds, filename)
+            error = analysis_result.get("error")
+            if error:
+                response_text = error
+            else:
+                new_session = {
+                    "state": "awaiting_document_question",
+                    "document_text": analysis_result.get("document_text"),
+                    "doc_type": analysis_result.get("doc_type"),
+                    "data": analysis_result.get("data", {})
+                }
+                set_user_session(sender_number, new_session)
+
+                doc_type = new_session["doc_type"]
+                if doc_type == "resume":
+                    response_text = "I've analyzed the resume from your Drive. You can now ask me questions about it (e.g., 'what are the key skills?')."
+                else:
+                    response_text = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
+        else:
+            response_text = "I didn't understand which file you want to analyze. Please be more specific."
+
+    elif intent == "set_reminder":
         reminders_to_set = entities
         if isinstance(reminders_to_set, list) and reminders_to_set:
             if len(reminders_to_set) > 1:
