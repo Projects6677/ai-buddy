@@ -2,8 +2,13 @@
 
 import os
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
+import io
+
+# Local application imports
+from document_processor import get_text_from_file
+from grok_ai import analyze_document_context
 
 def _get_or_create_folder(service):
     """Checks for the 'AI Buddy' folder and creates it if it doesn't exist."""
@@ -34,21 +39,17 @@ def upload_file_to_drive(credentials, file_path, original_filename, mime_type):
     try:
         service = build('drive', 'v3', credentials=credentials)
         
-        # Get the ID of the 'AI Buddy' folder
         folder_id = _get_or_create_folder(service)
         if not folder_id:
             return "❌ Could not create or find the 'AI Buddy' folder in your Google Drive."
 
-        # Define the file's metadata
         file_metadata = {
             'name': original_filename,
             'parents': [folder_id]
         }
         
-        # Create a media upload object
         media = MediaFileUpload(file_path, mimetype=mime_type, resumable=True)
         
-        # Upload the file
         file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
         
         file_link = file.get('webViewLink')
@@ -66,17 +67,14 @@ def search_files_in_drive(credentials, search_query):
     try:
         service = build('drive', 'v3', credentials=credentials)
         
-        # Construct the search query
         query = f"name contains '{search_query}' and trashed=false"
         
-        # Search for files
         response = service.files().list(q=query, spaces='drive', fields='files(id, name, webViewLink, iconLink)', pageSize=10).execute()
         files = response.get('files', [])
 
         if not files:
             return f"😕 No files found matching your search for '*{search_query}*'."
 
-        # Format the results
         results_message = f"🔎 Here are the top results for '*{search_query}*':\n\n"
         for file in files:
             file_name = file.get('name')
@@ -91,3 +89,80 @@ def search_files_in_drive(credentials, search_query):
     except Exception as e:
         print(f"An unexpected error occurred during file search: {e}")
         return "❌ An unexpected error occurred while searching for files."
+
+def download_file_from_drive(credentials, file_name):
+    """Finds a file by name and downloads its content."""
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        
+        query = f"name = '{file_name}' and trashed=false"
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name, mimeType)', pageSize=1).execute()
+        files = response.get('files', [])
+
+        if not files:
+            return None, None, f"😕 Couldn't find a file named '*{file_name}*'. Please check the name and try again."
+
+        file_info = files[0]
+        file_id = file_info.get('id')
+        original_mime_type = file_info.get('mimeType')
+
+        # Handle Google Docs, Sheets, etc. by exporting them to a standard format
+        if 'google-apps' in original_mime_type:
+            request_mime_type = 'application/pdf' # Export as PDF for text extraction
+            request = service.files().export_media(fileId=file_id, mimeType=request_mime_type)
+            final_mime_type = request_mime_type
+        else:
+            # For other file types, download directly
+            request = service.files().get_media(fileId=file_id)
+            final_mime_type = original_mime_type
+
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        
+        fh.seek(0)
+        
+        # Save to a temporary local file to be processed
+        temp_file_path = os.path.join("uploads", file_name)
+        with open(temp_file_path, "wb") as f:
+            f.write(fh.read())
+
+        return temp_file_path, final_mime_type, None # No error
+
+    except HttpError as error:
+        print(f"An HTTP error occurred during file download: {error}")
+        return None, None, "❌ Failed to download the file due to an API error."
+    except Exception as e:
+        print(f"An unexpected error occurred during file download: {e}")
+        return None, None, "❌ An unexpected error occurred while accessing the file."
+
+def analyze_drive_file_content(credentials, file_name):
+    """Orchestrates downloading, processing, and analyzing a file from Drive."""
+    downloaded_path, mime_type, error = download_file_from_drive(credentials, file_name)
+    if error:
+        return {"error": error}
+        
+    try:
+        if not downloaded_path:
+            return {"error": "Failed to save the downloaded file locally."}
+
+        extracted_text = get_text_from_file(downloaded_path, mime_type)
+        if not extracted_text:
+            return {"error": "❌ I couldn't find any readable text in that file."}
+
+        analysis = analyze_document_context(extracted_text)
+        if not analysis:
+            return {"error": "🤔 I analyzed the document, but I'm not sure what to do with it."}
+            
+        return {
+            "document_text": extracted_text,
+            "doc_type": analysis.get("doc_type"),
+            "data": analysis.get("data", {}),
+            "error": None
+        }
+    finally:
+        # Clean up the temporary file
+        if downloaded_path and os.path.exists(downloaded_path):
+            os.remove(downloaded_path)
