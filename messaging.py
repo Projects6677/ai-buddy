@@ -82,7 +82,8 @@ def send_interactive_menu(to, name):
                             {"id": "5", "title": "Translator", "description": "Translate text between languages."},
                             {"id": "6", "title": "Weather Forecast", "description": "Get the current weather."},
                             {"id": "7", "title": "Currency Converter", "description": "Convert between currencies."},
-                            {"id": "8", "title": "AI Email Assistant", "description": "Get help writing professional emails."}
+                            {"id": "8", "title": "AI Email Assistant", "description": "Get help writing professional emails."},
+                            {"id": "9", "title": "Google Drive", "description": "Manage and analyze files in your Drive."}
                         ]}]
             }
         }
