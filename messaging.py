@@ -214,3 +214,39 @@ def send_conversion_menu(to):
         requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send conversion menu to {to}: {e.response.text if e.response else e}")
+
+def send_google_drive_menu(to):
+    """Sends the interactive Google Drive menu."""
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Google Drive Options 📁"},
+            "body": {"text": "How would you like to use Google Drive?"},
+            "footer": {"text": "Please select an option"},
+            "action": {
+                "button": "Drive Features",
+                "sections": [
+                    {
+                        "title": "Available Actions",
+                        "rows": [
+                            {"id": "drive_upload_file", "title": "Upload a File", "description": "Save a document from WhatsApp to Drive."},
+                            {"id": "drive_search_file", "title": "Search for a File", "description": "Find a file in your Drive by name."},
+                            {"id": "drive_analyze_file", "title": "Analyze a File", "description": "Summarize or ask questions about a file."},
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+    try:
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send Google Drive menu to {to}: {e.response.text if e.response else e}")
