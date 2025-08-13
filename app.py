@@ -42,6 +42,7 @@ from grok_ai import (
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
+from google_drive import upload_file_to_drive # New import
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -205,20 +206,33 @@ def download_media_from_whatsapp(media_id, message_type):
         media_url = media_info['url']
 
         original_filename = f"media_{media_id}"
-        if message_type == 'document' and 'document' in media_info:
-            original_filename = media_info.get('document', {}).get('filename', original_filename)
+        if message_type == 'document':
+             # Prefer the filename from the document payload if available
+            original_filename = message.get('document', {}).get('filename', original_filename)
+        
+        # A fallback for images or documents without a name
+        if original_filename == f"media_{media_id}":
+            ext = mimetypes.guess_extension(media_info.get('mime_type', '')) or ''
+            original_filename = f"whatsapp_file_{media_id}{ext}"
+
 
         download_response = requests.get(media_url, headers=headers)
         download_response.raise_for_status()
+        
+        # We use the original filename now, secured.
         temp_filename = secure_filename(original_filename)
         if not temp_filename:
-            temp_filename = secure_filename(media_id)
+            temp_filename = secure_filename(media_id) # Last resort
+            
         file_path = os.path.join("uploads", temp_filename)
         with open(file_path, "wb") as f: f.write(download_response.content)
-        return file_path, media_info.get('mime_type')
+        
+        # Return the original (unsecured) filename for use in Drive, and the mime type
+        return file_path, original_filename, media_info.get('mime_type')
+        
     except requests.exceptions.RequestException as e:
         print(f"❌ Error downloading media: {e}")
-        return None, None
+        return None, None, None
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -263,10 +277,34 @@ def handle_document_message(message, sender_number, session_data, message_type):
 
     downloaded_path = None
     try:
-        if isinstance(session_data, dict) and session_data.get("state") == "awaiting_email_attachment":
+        simple_state = None
+        if isinstance(session_data, dict):
+            simple_state = session_data.get("state")
+        elif isinstance(session_data, str):
+            simple_state = session_data
+
+        if simple_state == "awaiting_drive_upload":
+            send_message(sender_number, "📥 Got your file. Uploading it to your Google Drive...")
+            creds = get_credentials_from_db(sender_number)
+            if not creds:
+                send_message(sender_number, "❌ Cannot upload. Your Google account is not connected. Please go to the menu to connect it.")
+                set_user_session(sender_number, None)
+                return
+
+            downloaded_path, original_filename, mime_type = download_media_from_whatsapp(media_id, message)
+            if downloaded_path:
+                upload_status = upload_file_to_drive(creds, downloaded_path, original_filename, mime_type)
+                send_message(sender_number, upload_status)
+            else:
+                send_message(sender_number, "❌ Sorry, I couldn't download your file to upload it. Please try again.")
+            
+            set_user_session(sender_number, None)
+            return
+
+        if simple_state == "awaiting_email_attachment":
             filename = message.get('document', {}).get('filename', 'attached_file')
             send_message(sender_number, f"Got it. Attaching `{filename}` to your email...")
-            downloaded_path, _ = download_media_from_whatsapp(media_id, message_type)
+            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message) # We don't need other values here
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -279,10 +317,8 @@ def handle_document_message(message, sender_number, session_data, message_type):
                 send_message(sender_number, "❌ Sorry, I couldn't download your attachment. Please try again.")
             return
 
-        simple_state = session_data if isinstance(session_data, str) else None
-
         if simple_state in ["awaiting_pdf_to_text", "awaiting_pdf_to_docx"]:
-            downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
+            downloaded_path, _, mime_type = download_media_from_whatsapp(media_id, message)
             if not downloaded_path:
                 send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
                 return
@@ -302,7 +338,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
             return
 
         send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
-        downloaded_path, mime_type = download_media_from_whatsapp(media_id, message_type)
+        downloaded_path, _, mime_type = download_media_from_whatsapp(media_id, message)
         if not downloaded_path:
             send_message(sender_number, "❌ Sorry, I couldn't download your file. Please try again.")
             return
@@ -621,6 +657,7 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, user_data.get("name"))
         return
 
+    # Menu Handlers
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
@@ -666,6 +703,7 @@ def handle_text_message(user_text, sender_number, session_data):
         reminders = get_all_reminders(sender_number, scheduler)
         send_reminders_list(sender_number, reminders)
         return
+    # Sub-menu Handlers (Conversions)
     elif user_text == "conv_pdf_to_text":
         set_user_session(sender_number, "awaiting_pdf_to_text")
         send_message(sender_number, "📄 Please send the PDF file you want to convert to text.")
@@ -682,6 +720,12 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_text_to_word")
         send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
         return
+    # Sub-menu Handlers (Google Drive)
+    elif user_text == "drive_upload_file":
+        set_user_session(sender_number, "awaiting_drive_upload")
+        send_message(sender_number, "📎 Please send the file you want to upload to your Google Drive.")
+        return
+
 
     send_message(sender_number, "🤖 Analyzing...")
     scheduler.add_job(
