@@ -111,21 +111,26 @@ def route_user_intent(text):
        - "entities": {{"location": "city_name"}}
 
     6. "export_expenses":
+       - Triggered by requests to export expenses to an Excel file.
+       - "entities": {{}}
+       
+    7. "get_expense_sheet":
+       - Triggered by requests to get a link to the Google Sheet for expenses.
        - "entities": {{}}
 
-    7. "drive_search_file":
+    8. "drive_search_file":
        - Triggered by requests to find or search for a file in Google Drive.
        - "entities": {{"query": "The name or keyword of the file to search for."}}
 
-    8. "drive_analyze_file":
+    9. "drive_analyze_file":
        - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
        - "entities": {{"filename": "The exact or partial filename to analyze."}}
 
-    9. "drive_upload_file":
+    10. "drive_upload_file":
         - Triggered by requests to save or upload the *next* file to Google Drive. This is used when the user *has not* sent the file yet but is indicating they want to.
         - "entities": {{}}
 
-    10. "general_query":
+    11. "general_query":
        - This is the default intent for any other general question or command.
        - "entities": {{}}
 
