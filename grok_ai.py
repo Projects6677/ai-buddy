@@ -102,7 +102,7 @@ def route_user_intent(text):
        - "entities": {{}}
 
     3. "log_expense":
-       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD_or_null"}}
+       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "The fully resolved date and time for the expense in 'YYYY-MM-DD HH:MM:SS' format. If a time is mentioned, use it. If no time or date is mentioned, use the current date and time."}}
 
     4. "convert_currency":
        - "entities": An array of objects, each with {{"amount": <number>, "from_currency": "3-letter_code", "to_currency": "3-letter_code"}}
