@@ -61,7 +61,7 @@ def send_interactive_menu(to, name):
         "Content-Type": "application/json"
     }
     
-    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today? You can also type commands like `.reminders` to see your reminders."
+    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today? "
 
     data = {
         "messaging_product": "whatsapp",
