@@ -12,7 +12,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/drive',
-    'https://www.googleapis.com/auth/spreadsheets'  # <-- ADD THIS LINE
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/youtube.readonly'  # <-- ADD THIS LINE
 ]
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")
 
