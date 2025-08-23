@@ -118,21 +118,25 @@ def route_user_intent(text):
        - Triggered by requests to get a link to the Google Sheet for expenses.
        - "entities": {{}}
 
-    8. "drive_search_file":
+    8. "youtube_search":
+       - Triggered by requests to find, search for, or get a video from YouTube.
+       - "entities": {{"query": "The search term for the video."}}
+
+    9. "drive_search_file":
        - Triggered by requests to find or search for a file in Google Drive.
        - "entities": {{"query": "The name or keyword of the file to search for."}}
 
-    9. "drive_analyze_file":
-       - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
-       - "entities": {{"filename": "The exact or partial filename to analyze."}}
+    10. "drive_analyze_file":
+        - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
+        - "entities": {{"filename": "The exact or partial filename to analyze."}}
 
-    10. "drive_upload_file":
+    11. "drive_upload_file":
         - Triggered by requests to save or upload the *next* file to Google Drive. This is used when the user *has not* sent the file yet but is indicating they want to.
         - "entities": {{}}
 
-    11. "general_query":
-       - This is the default intent for any other general question or command.
-       - "entities": {{}}
+    12. "general_query":
+        - This is the default intent for any other general question or command.
+        - "entities": {{}}
 
     ---
     User's text to analyze: "{text}"
