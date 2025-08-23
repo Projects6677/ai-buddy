@@ -45,6 +45,7 @@ from services import get_daily_quote, get_on_this_day_in_history, get_raw_weathe
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
+from youtube_search import search_youtube_for_video # <-- NEW IMPORT
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -728,7 +729,7 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
         return
     elif user_text == "2":
-        set_user_session(sender_number, "awaiting_ grammar")
+        set_user_session(sender_number, "awaiting_grammar")
         send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
         return
     elif user_text == "3":
@@ -817,7 +818,8 @@ def process_natural_language_request(user_text, sender_number):
     response_text = ""
 
     creds = get_credentials_from_db(sender_number)
-    if (intent.startswith("drive_") or intent.endswith("_sheet")) and not creds:
+    google_intents = ["drive_upload_file", "drive_search_file", "drive_analyze_file", "get_expense_sheet", "youtube_search"]
+    if intent in google_intents and not creds:
         send_message(sender_number, "⚠️ To use this Google feature, you must first connect your Google account.")
         return
 
@@ -858,6 +860,14 @@ def process_natural_language_request(user_text, sender_number):
                     response_text = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
         else:
             response_text = "I didn't understand which file you want to analyze. Please be more specific."
+
+    elif intent == "youtube_search":
+        query = entities.get("query")
+        if query:
+            send_message(sender_number, f"🔎 Searching YouTube for '*{query}*'...")
+            response_text = search_youtube_for_video(creds, query)
+        else:
+            response_text = "I didn't understand what you want to search for on YouTube."
 
     elif intent == "set_reminder":
         reminders_to_set = entities
