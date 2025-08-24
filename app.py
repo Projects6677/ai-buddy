@@ -712,102 +712,19 @@ def handle_text_message(user_text, sender_number, session_data):
             return
     
     # --- Fallthrough to Main Menu Logic if no state is active ---
-        
-    if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
-        set_user_session(sender_number, None)
-        user_data = get_user_from_db(sender_number)
-        if not user_data:
-            set_user_session(sender_number, "awaiting_name")
-            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
-        else:
-            send_welcome_message(sender_number, user_data.get("name"))
-        return
-
-    # Menu Handlers
-    if user_text == "1":
-        set_user_session(sender_number, "awaiting_reminder_text")
-        send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
-        return
-    elif user_text == "2":
-        set_user_session(sender_number, "awaiting_grammar")
-        send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
-        return
-    elif user_text == "3":
-        set_user_session(sender_number, "awaiting_ai")
-        send_message(sender_number, "🤖 I'm ready! Ask me anything, and I'll do my best to answer.")
-        return
-    elif user_text == "4":
-        send_conversion_menu(sender_number)
-        return
-    elif user_text == "5":
-        set_user_session(sender_number, "awaiting_translation")
-        send_message(sender_number, "🌍 What text would you like to translate, and to which language? (e.g., 'Hello how are you to Spanish')")
-        return
-    elif user_text == "6":
-        set_user_session(sender_number, "awaiting_weather")
-        send_message(sender_number, "🏙️ Enter a city or location to get the current weather.")
-        return
-    elif user_text == "7":
-        send_message(sender_number, "💱 What would you like to convert? (e.g., '100 USD to INR')")
-        return
-    elif user_text == "8":
-        creds = get_credentials_from_db(sender_number)
-        if creds:
-            set_user_session(sender_number, "awaiting_email_recipient")
-            send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
-        else:
-            send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
-        return
-    elif user_text == "9":
-        creds = get_credentials_from_db(sender_number)
-        if creds:
-            send_google_drive_menu(sender_number)
-        else:
-            send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
-        return
-    elif user_text == "reminders_check":
-        reminders = get_all_reminders(sender_number, scheduler)
-        send_reminders_list(sender_number, reminders)
-        return
-    # Sub-menu Handlers (Conversions)
-    elif user_text == "conv_pdf_to_text":
-        set_user_session(sender_number, "awaiting_pdf_to_text")
-        send_message(sender_number, "📄 Please send the PDF file you want to convert to text.")
-        return
-    elif user_text == "conv_text_to_pdf":
-        set_user_session(sender_number, "awaiting_text_to_pdf")
-        send_message(sender_number, "📝 Please send the text you want to convert into a PDF document.")
-        return
-    elif user_text == "conv_pdf_to_word":
-        set_user_session(sender_number, "awaiting_pdf_to_docx")
-        send_message(sender_number, "📄 Please send the PDF file you want to convert to a Word document.")
-        return
-    elif user_text == "conv_text_to_word":
-        set_user_session(sender_number, "awaiting_text_to_word")
-        send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
-        return
-    # Sub-menu Handlers (Google Drive)
-    elif user_text == "drive_upload_file":
-        set_user_session(sender_number, "awaiting_drive_upload")
-        send_message(sender_number, "📎 Please send the file you want to upload to your Google Drive.")
-        return
-    elif user_text == "drive_search_file":
-        set_user_session(sender_number, "awaiting_drive_search_query")
-        send_message(sender_number, "📝 What are you searching for? Please provide a file name or keyword.")
-        return
-    elif user_text == "drive_analyze_file":
-        set_user_session(sender_number, "awaiting_drive_analysis_query")
-        send_message(sender_number, "📝 What is the exact name of the file you want to analyze?")
-        return
-
-    # If no menu option is matched, process as a natural language request
-    send_message(sender_number, "🤖 Analyzing your request...")
-    scheduler.add_job(
-        func=process_natural_language_request,
-        trigger='date',
-        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-        args=[user_text, sender_number]
-    )
+    # The menu and greeting logic has been removed to rely on natural language intent routing.
+    user_data = get_user_from_db(sender_number)
+    if not user_data:
+        set_user_session(sender_number, "awaiting_name")
+        send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
+    else:
+        send_message(sender_number, "🤖 Analyzing your request...")
+        scheduler.add_job(
+            func=process_natural_language_request,
+            trigger='date',
+            run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+            args=[user_text, sender_number]
+        )
 
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
