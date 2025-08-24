@@ -38,8 +38,7 @@ from grok_ai import (
     translate_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
-    is_document_followup_question,
-    multi_modal_image_analysis # <-- NEW IMPORT
+    is_document_followup_question
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
@@ -61,8 +60,7 @@ app.secret_key = os.urandom(24)
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
-GROK_API_KEY = os.environ.get("GROK_API_KEY") # This is now for backwards compatibility
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROK_API_KEY = os.environ.get("GROK_API_KEY")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -355,16 +353,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
             set_user_session(sender_number, None)
             return
 
-        if message_type == "image":
-            send_message(sender_number, "🖼️ Got your image! I can analyze it for you. What would you like to know about it?")
-            downloaded_path, _, mime_type = download_media_from_whatsapp(media_id, message)
-            if not downloaded_path:
-                send_message(sender_number, "❌ Sorry, I couldn't download your image. Please try again.")
-                return
-            new_session = {"state": "awaiting_image_question", "image_path": downloaded_path}
-            set_user_session(sender_number, new_session)
-            return
-            
         send_message(sender_number, "📄 Got your file! Analyzing it with AI...")
         downloaded_path, _, mime_type = download_media_from_whatsapp(media_id, message)
         if not downloaded_path:
@@ -516,11 +504,20 @@ def handle_text_message(user_text, sender_number, session_data):
                     set_user_session(sender_number, new_session)
 
                     doc_type = new_session["doc_type"]
+                    data = new_session["data"]
                     if doc_type == "resume":
-                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
+                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
+                    elif doc_type == "project_plan":
+                        response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
+                    elif doc_type == "meeting_invite":
+                        task = data.get("task", "this event")
+                        response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
+                    elif doc_type == "q_and_a":
+                        response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
                     else:
-                        response = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
+                        response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
                     send_message(sender_number, response)
+
             else:
                 send_message(sender_number, "❌ Could not analyze. Your Google account is not connected.")
                 set_user_session(sender_number, None)
@@ -530,7 +527,7 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, f"🔎 Searching for '*{user_text}*' in your Google Drive...")
             creds = get_credentials_from_db(sender_number)
             if creds:
-                search_results = search_files_in_drive(creds, user_text)
+                search_results = search_files in drive(creds, user_text)
                 send_message(sender_number, search_results)
             else:
                 send_message(sender_number, "❌ Could not search. Your Google account is not connected.")
@@ -551,6 +548,7 @@ def handle_text_message(user_text, sender_number, session_data):
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
+                # Fall through to the main menu logic
             else:
                 doc_text = session_data.get("document_text")
                 send_message(sender_number, "🤖 Thinking...")
@@ -559,33 +557,19 @@ def handle_text_message(user_text, sender_number, session_data):
                 send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
                 return
 
-        if current_state == "awaiting_image_question":
-            image_path = session_data.get("image_path")
-            if not image_path:
-                send_message(sender_number, "❌ No image found in session. Please try uploading the image again.")
-                set_user_session(sender_number, None)
-                return
-            
-            send_message(sender_number, "🤖 Analyzing your image...")
-            response = multi_modal_image_analysis(image_path, user_text)
-            
-            # Clean up the temporary file after analysis
-            if os.path.exists(image_path):
-                os.remove(image_path)
-            
-            send_message(sender_number, response)
-            send_message(sender_number, "_You can ask another question, or type `menu` to exit._")
-            set_user_session(sender_number, None)
-            return
-
         if current_state == "awaiting_grammar":
             response_text = correct_grammar_with_grok(user_text)
             set_user_session(sender_number, None)
             send_message(sender_number, response_text)
             return
         elif current_state == "awaiting_ai":
-            response_text = ai_reply(user_text)
-            send_message(sender_number, response_text)
+            if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
+                set_user_session(sender_number, None)
+                user_data = get_user_from_db(sender_number)
+                send_welcome_message(sender_number, user_data.get("name", "User"))
+            else:
+                response_text = ai_reply(user_text)
+                send_message(sender_number, response_text)
             return
         elif current_state == "awaiting_translation":
             response_text = translate_with_grok(user_text)
@@ -724,25 +708,108 @@ def handle_text_message(user_text, sender_number, session_data):
                 if new_body:
                     session_data["body"] = new_body
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._")
+                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_You can ask for more changes, type *'attach'* for a file, or type *'send'*._")
                 else:
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
     
     # --- Fallthrough to Main Menu Logic if no state is active ---
-    # The menu and greeting logic has been removed to rely on natural language intent routing.
-    user_data = get_user_from_db(sender_number)
-    if not user_data:
-        set_user_session(sender_number, "awaiting_name")
-        send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
-    else:
-        send_message(sender_number, "🤖 Analyzing your request...")
-        scheduler.add_job(
-            func=process_natural_language_request,
-            trigger='date',
-            run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-            args=[user_text, sender_number]
-        )
+        
+    if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
+        set_user_session(sender_number, None)
+        user_data = get_user_from_db(sender_number)
+        if not user_data:
+            set_user_session(sender_number, "awaiting_name")
+            send_message(sender_number, "👋 Hi there! To personalize your experience, what should I call you?")
+        else:
+            send_welcome_message(sender_number, user_data.get("name"))
+        return
+
+    # Menu Handlers
+    if user_text == "1":
+        set_user_session(sender_number, "awaiting_reminder_text")
+        send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
+        return
+    elif user_text == "2":
+        set_user_session(sender_number, "awaiting_grammar")
+        send_message(sender_number, "✍️ Send me the sentence or paragraph you want me to correct.")
+        return
+    elif user_text == "3":
+        set_user_session(sender_number, "awaiting_ai")
+        send_message(sender_number, "🤖 I'm ready! Ask me anything, and I'll do my best to answer.")
+        return
+    elif user_text == "4":
+        send_conversion_menu(sender_number)
+        return
+    elif user_text == "5":
+        set_user_session(sender_number, "awaiting_translation")
+        send_message(sender_number, "🌍 What text would you like to translate, and to which language? (e.g., 'Hello how are you to Spanish')")
+        return
+    elif user_text == "6":
+        set_user_session(sender_number, "awaiting_weather")
+        send_message(sender_number, "🏙️ Enter a city or location to get the current weather.")
+        return
+    elif user_text == "7":
+        send_message(sender_number, "💱 What would you like to convert? (e.g., '100 USD to INR')")
+        return
+    elif user_text == "8":
+        creds = get_credentials_from_db(sender_number)
+        if creds:
+            set_user_session(sender_number, "awaiting_email_recipient")
+            send_message(sender_number, "📧 *AI Email Assistant*\n\nWho are the recipients? (Emails separated by commas)")
+        else:
+            send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
+        return
+    elif user_text == "9":
+        creds = get_credentials_from_db(sender_number)
+        if creds:
+            send_google_drive_menu(sender_number)
+        else:
+            send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
+        return
+    elif user_text == "reminders_check":
+        reminders = get_all_reminders(sender_number, scheduler)
+        send_reminders_list(sender_number, reminders)
+        return
+    # Sub-menu Handlers (Conversions)
+    elif user_text == "conv_pdf_to_text":
+        set_user_session(sender_number, "awaiting_pdf_to_text")
+        send_message(sender_number, "📄 Please send the PDF file you want to convert to text.")
+        return
+    elif user_text == "conv_text_to_pdf":
+        set_user_session(sender_number, "awaiting_text_to_pdf")
+        send_message(sender_number, "📝 Please send the text you want to convert into a PDF document.")
+        return
+    elif user_text == "conv_pdf_to_word":
+        set_user_session(sender_number, "awaiting_pdf_to_docx")
+        send_message(sender_number, "📄 Please send the PDF file you want to convert to a Word document.")
+        return
+    elif user_text == "conv_text_to_word":
+        set_user_session(sender_number, "awaiting_text_to_word")
+        send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
+        return
+    # Sub-menu Handlers (Google Drive)
+    elif user_text == "drive_upload_file":
+        set_user_session(sender_number, "awaiting_drive_upload")
+        send_message(sender_number, "📎 Please send the file you want to upload to your Google Drive.")
+        return
+    elif user_text == "drive_search_file":
+        set_user_session(sender_number, "awaiting_drive_search_query")
+        send_message(sender_number, "📝 What are you searching for? Please provide a file name or keyword.")
+        return
+    elif user_text == "drive_analyze_file":
+        set_user_session(sender_number, "awaiting_drive_analysis_query")
+        send_message(sender_number, "📝 What is the exact name of the file you want to analyze?")
+        return
+
+    # If no menu option is matched, process as a natural language request
+    send_message(sender_number, "🤖 Analyzing your request...")
+    scheduler.add_job(
+        func=process_natural_language_request,
+        trigger='date',
+        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+        args=[user_text, sender_number]
+    )
 
 
 # === UI, HELPERS, & LOGIC FUNCTIONS ===
@@ -986,7 +1053,7 @@ def send_daily_briefing():
 
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
-    history_events = get_on_this_day in history()
+    history_events = get_on_this_day_in_history()
     
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
