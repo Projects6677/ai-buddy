@@ -89,8 +89,7 @@ def send_interactive_menu(to, name):
         }
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
@@ -130,8 +129,7 @@ def send_reminders_list(to, reminders):
         }
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send reminders list to {to}: {e.response.text if e.response else e}")
 
