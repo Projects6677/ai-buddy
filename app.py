@@ -46,7 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
-from email_summary import send_email_summary_for_user # New Import
+from email_summary import send_email_summary_for_user # Make sure this is the only import from email_summary
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -877,11 +877,6 @@ def process_natural_language_request(user_text, sender_number):
             "📁 *File & Document Management*\n"
             "• *File Conversion*: Convert between PDF, Word, and Text.\n"
             "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
-             "💣 *Developer Only Commands*\n"
-            "• `.dev Secret_key`: Used to send messages to all the users.\n"
-            "• `.test Secret_key`: Used to test a new fucntion in the code.\n"
-            "• `.nuke`: Delete all users data.\n"
-            "• `.stats`: Gives all Registered Users Details.\n"
             "✨ *Hidden Commands*\n"
             "• `.reminders`: See a list of all your active reminders.\n"
             "• `.reconnect`: Refresh your Google account connection.\n\n"
@@ -1070,7 +1065,7 @@ def send_daily_briefing():
     print("--- Daily Briefing Job Finished ---")
 
 def send_daily_email_summaries():
-    """Scheduled job to send email summaries to all connected users."""
+    """Scheduled job to send email summary notifications to all connected users."""
     print(f"--- Running Daily Email Summary Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
@@ -1079,10 +1074,8 @@ def send_daily_email_summaries():
     for user in all_users:
         if user.get("is_google_connected"):
             user_id, user_name = user["_id"], user.get("name", "there")
-            creds = get_credentials_from_db(user_id)
-            if creds:
-                send_email_summary_for_user(user_id, user_name, creds)
-                time.sleep(2) # Stagger messages
+            send_email_summary_notification(user_id, user_name)
+            time.sleep(2) # Stagger messages
     print("--- Daily Email Summary Job Finished ---")
 
 def send_test_briefing(developer_number):
