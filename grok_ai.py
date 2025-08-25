@@ -110,25 +110,25 @@ def route_user_intent(text):
     5. "get_weather":
        - "entities": {{"location": "city_name"}}
 
-    6. "export_expenses":
-       - Triggered by requests to export expenses to an Excel file.
-       - "entities": {{}}
-       
-    7. "get_expense_sheet":
-       - Triggered by requests to get a link to the Google Sheet for expenses.
+    6. "get_features":
+       - Triggered by questions like "what can you do?", "what are your features?", "help", or "what are your commands?".
        - "entities": {{}}
 
-    8. "youtube_search":
-       - Triggered by requests to find, search for, or get a video from YouTube.
-       - "entities": {{"query": "The search term for the video."}}
-
-    9. "get_bot_identity":
+    7. "get_bot_identity":
        - Triggered by questions like "who are you?", "what are you?", "who made you?", or "who created you?".
        - "entities": {{}}
 
-    10. "get_features_list":
-        - Triggered by questions like "what can you do?", "what are your features?", "features", or "show me your features".
-        - "entities": {{}}
+    8. "export_expenses":
+       - Triggered by requests to export expenses to an Excel file.
+       - "entities": {{}}
+       
+    9. "get_expense_sheet":
+       - Triggered by requests to get a link to the Google Sheet for expenses.
+       - "entities": {{}}
+
+    10. "youtube_search":
+        - Triggered by requests to find, search for, or get a video from YouTube.
+        - "entities": {{"query": "The search term for the video."}}
 
     11. "drive_search_file":
         - Triggered by requests to find or search for a file in Google Drive.
