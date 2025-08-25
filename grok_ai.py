@@ -168,6 +168,44 @@ def route_user_intent(text):
         return {"intent": "general_query", "entities": {}}
 
 
+# --- NEW WEATHER SUMMARY FUNCTION ---
+def generate_weather_summary(weather_data, location):
+    """
+    Uses AI to create a conversational weather summary from raw API data.
+    """
+    if not GROK_API_KEY:
+        # Provide a basic fallback if AI is not available
+        temp = weather_data.get('main', {}).get('temp', 'N/A')
+        condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
+        return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
+
+    prompt = f"""
+    You are a friendly and helpful weather reporter. Based on the following raw weather data for {location}, write a detailed and engaging 2-3 sentence summary.
+
+    - Main condition: {weather_data.get('weather', [{}])[0].get('description', 'N/A')}
+    - Temperature: {weather_data.get('main', {}).get('temp', 'N/A')}°C
+    - Feels like: {weather_data.get('main', {}).get('feels_like', 'N/A')}°C
+    - Humidity: {weather_data.get('main', {}).get('humidity', 'N/A')}%
+    - Wind speed: {weather_data.get('wind', {}).get('speed', 'N/A')} m/s
+
+    Start with an emoji that matches the weather. Be conversational and give a helpful tip (e.g., "it's a good day for a walk," or "you might want to carry an umbrella").
+    """
+
+    payload = {
+        "model": GROK_MODEL_FAST, # Fast model is perfect for this task
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
+        response.raise_for_status()
+        summary = response.json()["choices"][0]["message"]["content"].strip()
+        return summary
+    except Exception as e:
+        print(f"Grok weather summary error: {e}")
+        return "⚠️ Sorry, I couldn't generate a detailed weather summary right now."
+
+
 # --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
