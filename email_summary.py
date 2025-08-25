@@ -36,34 +36,48 @@ def get_recent_emails(credentials):
         print(f"Error fetching recent emails: {e}")
         return None
 
-def send_email_summary_notification(user_id, user_name):
+def send_email_summary_for_user(user_id, user_name, credentials):
     """
-    Sends the pre-approved template to notify the user their summary is ready.
-    This is called by the main scheduler.
+    Fetches, summarizes, and sends the daily email summary for a single user using a template.
     """
-    print(f"--- Sending email summary notification to {user_name} ({user_id}) ---")
-    template_name = "email_summary_notification"
-    components = [{"type": "body", "parameters": [{"type": "text", "text": user_name}]}]
-    send_template_message(user_id, template_name, components)
-
-def generate_and_send_full_summary(user_id, user_name, credentials):
-    """
-    Fetches emails, generates the full AI summary, and sends it as a text message.
-    This is triggered by the user's reply to the notification.
-    """
-    send_message(user_id, "Got it! Generating your email summary now, this may take a moment...")
+    print(f"--- Generating email summary for {user_name} ({user_id}) ---")
     
     emails = get_recent_emails(credentials)
     
     if emails is None:
+        # Send an error message if Gmail access fails
         send_message(user_id, "⚠️ Sorry, I couldn't access your Gmail account to create your summary. Please try reconnecting your account using the `.reconnect` command.")
         return
 
     if not emails:
-        send_message(user_id, "You have no new unread emails in the last 24 hours. Your inbox is clear! ✨")
+        # Send a specific template if there are no new emails
+        template_name = "daily_email_summary_v1" # Use the same template for consistency
+        components = [
+            {"type": "header", "parameters": [{"type": "text", "text": "📧 Your 9 AM Email Summary"}]},
+            {"type": "body", "parameters": [
+                {"type": "text", "text": user_name},
+                {"type": "text", "text": "Your inbox is clear! ✨"},
+                {"type": "text", "text": "No new unread emails in the last 24 hours."},
+                {"type": "text", "text": "Great job staying on top of your inbox."}
+            ]}
+        ]
+        send_template_message(user_id, template_name, components)
         return
         
-    summary_text = generate_email_summary(emails, user_name)
-    send_message(user_id, summary_text)
-    print(f"--- Full email summary sent to {user_name} ({user_id}) ---")
+    # Generate the structured summary from the AI
+    summary_data = generate_email_summary(emails, user_name)
+    
+    # Send the template with the structured data
+    template_name = "daily_email_summary_v1"
+    components = [
+        {"type": "header", "parameters": [{"type": "text", "text": "📧 Your 9 AM Email Summary"}]},
+        {"type": "body", "parameters": [
+            {"type": "text", "text": user_name},
+            {"type": "text", "text": summary_data.get("highlight", "N/A")},
+            {"type": "text", "text": summary_data.get("other_updates", "N/A")},
+            {"type": "text", "text": summary_data.get("suggestion", "N/A")}
+        ]}
+    ]
+    send_template_message(user_id, template_name, components)
+    print(f"--- Email summary sent to {user_name} ({user_id}) ---")
 
