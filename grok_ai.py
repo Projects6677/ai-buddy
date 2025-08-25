@@ -206,43 +206,50 @@ def generate_weather_summary(weather_data, location):
         return "⚠️ Sorry, I couldn't generate a detailed weather summary right now."
 
 
-# --- NEW EMAIL SUMMARY FUNCTION ---
+# --- UPDATED EMAIL SUMMARY FUNCTION ---
 def generate_email_summary(emails, user_name):
     """
-    Uses AI to create a high-quality summary of recent emails.
+    Uses AI to create a structured summary of recent emails for a template.
     """
     if not GROK_API_KEY:
-        return "📧 Here's a basic list of your new emails:\n\n" + "\n".join([f"- *{e['subject']}* from {e['from']}" for e in emails])
+        return {
+            "highlight": "Could not generate AI summary.",
+            "other_updates": f"You have {len(emails)} new emails.",
+            "suggestion": "Please check your Gmail app for details."
+        }
 
     prompt = f"""
-    You are an expert executive assistant AI. Your task is to analyze a list of recent unread emails for a user named {user_name} and create a clear, concise, and actionable morning summary.
+    You are an expert executive assistant AI. Your task is to analyze a list of recent unread emails for a user named {user_name} and create a structured summary.
 
     Here is the list of emails in JSON format:
     {json.dumps(emails, indent=2)}
 
-    **Your summary MUST follow these rules:**
-    1.  **Start with a friendly greeting:** "📧 Good morning, {user_name}! Here's a summary of your new emails:"
-    2.  **Prioritize:** Identify the 1-3 most important or urgent emails (e.g., personal conversations, meeting requests, alerts). Summarize each of these under a " HIGHLIGHTS ✨" section. For each, mention the sender, the subject, and a brief, insightful summary of the content.
-    3.  **Categorize the Rest:** Group the remaining emails into categories like "PROMOTIONS & UPDATES 🛍️" or "NEWSLETTERS 📰". For these categories, do not summarize each email. Instead, just list the senders or subjects to give a quick overview (e.g., "You have new offers from Swiggy and Zomato.").
-    4.  **Actionable Closing:** End with a concluding sentence that suggests what the user might want to do next (e.g., "You might want to look at the email from [Important Sender] first.").
-    5.  **Tone:** Your tone should be professional, efficient, and helpful.
-    6.  **If no important emails:** If all emails seem to be promotions or newsletters, state that clearly. For example: "It looks like you mostly have new promotions and newsletters today."
+    **Your response MUST be a JSON object with three keys: "highlight", "other_updates", and "suggestion".**
 
-    Provide only the complete, formatted summary as your response.
+    1.  **"highlight"**: Identify the single most important or urgent email. Create a one-sentence summary for it. Example: "You have a meeting request from John Doe about the Q3 project." If no emails are important, say "No urgent emails to highlight."
+    2.  **"other_updates"**: Briefly list the topics or senders of the less important emails. Example: "You also have updates from Asana, a newsletter from TechCrunch, and a promotion from Swiggy."
+    3.  **"suggestion"**: Provide a clear, actionable next step. Example: "You should probably reply to John Doe's meeting request first."
+
+    Keep each field concise to fit within a messaging template. Return only the JSON object.
     """
     payload = {
-        "model": GROK_MODEL_SMART, # Use the smart model for this complex task
+        "model": GROK_MODEL_SMART,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.5
+        "temperature": 0.5,
+        "response_format": {"type": "json_object"}
     }
     try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=90) # Longer timeout
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=90)
         response.raise_for_status()
-        summary = response.json()["choices"][0]["message"]["content"].strip()
-        return summary
+        summary_json = json.loads(response.json()["choices"][0]["message"]["content"])
+        return summary_json
     except Exception as e:
         print(f"Grok email summary error: {e}")
-        return "⚠️ Sorry, I couldn't generate your email summary due to an AI service error."
+        return {
+            "highlight": "Error generating summary.",
+            "other_updates": "Could not process other emails.",
+            "suggestion": "An AI service error occurred."
+        }
 
 
 # --- OTHER AI FUNCTIONS ---
