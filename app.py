@@ -45,7 +45,7 @@ from services import get_daily_quote, get_on_this_day_in_history, get_raw_weathe
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
-from youtube_search import search_youtube_for_video # <-- NEW IMPORT
+from youtube_search import search_youtube_for_video
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -506,16 +506,14 @@ def handle_text_message(user_text, sender_number, session_data):
                     doc_type = new_session["doc_type"]
                     data = new_session["data"]
                     if doc_type == "resume":
-                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
+                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
                     elif doc_type == "project_plan":
-                        response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
+                        response = "I've read the project plan from your Drive. You can now ask me questions about it."
                     elif doc_type == "meeting_invite":
                         task = data.get("task", "this event")
-                        response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
-                    elif doc_type == "q_and_a":
-                        response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
+                        response = f"I see this is an invitation for '{task}' from your Drive. Would you like me to schedule it?"
                     else:
-                        response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
+                        response = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
                     send_message(sender_number, response)
 
             else:
@@ -527,7 +525,7 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, f"🔎 Searching for '*{user_text}*' in your Google Drive...")
             creds = get_credentials_from_db(sender_number)
             if creds:
-                search_results = search_files in drive(creds, user_text)
+                search_results = search_files_in_drive(creds, user_text)
                 send_message(sender_number, search_results)
             else:
                 send_message(sender_number, "❌ Could not search. Your Google account is not connected.")
@@ -708,7 +706,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 if new_body:
                     session_data["body"] = new_body
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_You can ask for more changes, type *'attach'* for a file, or type *'send'*._")
+                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._")
                 else:
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
@@ -870,6 +868,42 @@ def process_natural_language_request(user_text, sender_number):
             response_text = search_youtube_for_video(creds, query)
         else:
             response_text = "I didn't understand what you want to search for on YouTube."
+
+    elif intent == "get_bot_identity":
+        response_text = (
+            "I am AI Buddy, a smart WhatsApp assistant 🤖.\n\n"
+            "I was created by *Sajja Dhruvin Sai* and *Leela Ranga Prasad*, "
+            "two passionate B.Tech 2nd year students from SAHE University.\n\n"
+            "They designed me to make everyday digital tasks easier and more conversational. "
+            "You can ask me to set reminders, search for information, manage your files, and much more!"
+        )
+
+    elif intent == "get_features":
+        response_text = (
+            "Of course! Here is a full list of my capabilities:\n\n"
+            "🧠 *AI & Information*\n"
+            "• *Ask Me Anything*: Get answers to general questions.\n"
+            "• *YouTube Search*: Find any video from YouTube.\n"
+            "• *Fix Grammar*: I can correct your English grammar and spelling.\n"
+            "• *AI Translator*: Translate text between many languages.\n"
+            "• *Weather Forecast*: Get the current weather for any city.\n"
+            "• *Currency Converter*: Convert between different currencies.\n\n"
+            "🗓️ *Productivity*\n"
+            "• *Set Reminders*: Set one-time or recurring reminders.\n"
+            "• *AI Email Assistant*: I can help you write and send professional emails.\n"
+            "• *Expense Tracker*: Log your expenses to a live Google Sheet.\n\n"
+            "📁 *File & Document Management*\n"
+            "• *File Conversion*: Convert between PDF, Word, and Text.\n"
+            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
+            "💣 *Developer Only Commands*\n"
+            "• `.dev Secret_key`: Used to send messages to all the users.\n"
+            "• `.test Secret_key`: Used to test a new fucntion in the code.\n"
+            "• `.nuke`: Delete all users data.\n"
+            "✨ *Hidden Commands*\n"
+            "• `.reminders`: See a list of all your active reminders.\n"
+            "• `.reconnect`: Refresh your Google account connection.\n\n"
+            "Type `menu` at any time to see the main options!"
+        )
 
     elif intent == "set_reminder":
         reminders_to_set = entities
