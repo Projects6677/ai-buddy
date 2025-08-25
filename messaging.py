@@ -61,7 +61,7 @@ def send_interactive_menu(to, name):
         "Content-Type": "application/json"
     }
     
-    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today? "
+    welcome_text = f"👋 Welcome back, *{name}*!\n\nHow can I assist you today? You can also type commands like `.reminders` to see your reminders."
 
     data = {
         "messaging_product": "whatsapp",
@@ -79,17 +79,17 @@ def send_interactive_menu(to, name):
                             {"id": "2", "title": "Fix Grammar", "description": "Correct spelling and grammar."},
                             {"id": "3", "title": "Ask AI Anything", "description": "Chat with the AI assistant."},
                             {"id": "4", "title": "File/Text Conversion", "description": "Convert between PDF and Word."},
-                            {"id": "5", "title": "Translator", "description": "Translate text between languages."},
-                            {"id": "6", "title": "Weather Forecast", "description": "Get the current weather."},
-                            {"id": "7", "title": "Currency Converter", "description": "Convert between currencies."},
-                            {"id": "8", "title": "AI Email Assistant", "description": "Get help writing professional emails."},
-                            {"id": "9", "title": "Google Drive", "description": "Manage and analyze files in your Drive."}
+                            {"id": "5", "title": "Weather Forecast", "description": "Get the current weather."},
+                            {"id": "6", "title": "Currency Converter", "description": "Convert between currencies."},
+                            {"id": "7", "title": "AI Email Assistant", "description": "Get help writing professional emails."},
+                            {"id": "8", "title": "Google Drive", "description": "Manage and analyze files in your Drive."}
                         ]}]
             }
         }
     }
     try:
-        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send interactive menu to {to}: {e.response.text if e.response else e}")
 
@@ -129,11 +129,11 @@ def send_reminders_list(to, reminders):
         }
     }
     try:
-        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send reminders list to {to}: {e.response.text if e.response else e}")
 
-# --- NEW INTERACTIVE CONFIRMATION ---
 def send_delete_confirmation(to, job_id, task_name):
     """Sends a yes/no confirmation message for deleting a reminder."""
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
