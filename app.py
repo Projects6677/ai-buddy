@@ -37,7 +37,8 @@ from grok_ai import (
     write_email_body_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
-    is_document_followup_question
+    is_document_followup_question,
+    generate_email_summary
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
@@ -45,6 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
+from email_summary import send_email_summary_for_user # New Import
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -281,7 +283,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
         elif isinstance(session_data, str):
             simple_state = session_data
 
-        # This state is set when the NLP detects a drive upload intent *before* the file is sent
         if simple_state == "awaiting_drive_upload_nlp":
             send_message(sender_number, "📥 Got it. Uploading to your Google Drive...")
             creds = get_credentials_from_db(sender_number)
@@ -319,7 +320,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
             return
 
         if simple_state == "awaiting_email_attachment":
-            downloaded_path, original_filename, _ = download_media_from_whatsapp(media_id, message)
+            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -545,7 +546,6 @@ def handle_text_message(user_text, sender_number, session_data):
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
-                # Fall through to the main menu logic
             else:
                 doc_text = session_data.get("document_text")
                 send_message(sender_number, "🤖 Thinking...")
@@ -705,8 +705,6 @@ def handle_text_message(user_text, sender_number, session_data):
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
     
-    # --- Fallthrough to Main Menu Logic if no state is active ---
-        
     if user_text_lower in menu_commands or any(greet in user_text_lower for greet in greetings):
         set_user_session(sender_number, None)
         user_data = get_user_from_db(sender_number)
@@ -717,7 +715,6 @@ def handle_text_message(user_text, sender_number, session_data):
             send_welcome_message(sender_number, user_data.get("name"))
         return
 
-    # Menu Handlers
     if user_text == "1":
         set_user_session(sender_number, "awaiting_reminder_text")
         send_message(sender_number, "🕒 Sure, what's the reminder? (e.g., 'Call mom tomorrow at 5pm')")
@@ -759,7 +756,6 @@ def handle_text_message(user_text, sender_number, session_data):
         reminders = get_all_reminders(sender_number, scheduler)
         send_reminders_list(sender_number, reminders)
         return
-    # Sub-menu Handlers (Conversions)
     elif user_text == "conv_pdf_to_text":
         set_user_session(sender_number, "awaiting_pdf_to_text")
         send_message(sender_number, "📄 Please send the PDF file you want to convert to text.")
@@ -776,7 +772,6 @@ def handle_text_message(user_text, sender_number, session_data):
         set_user_session(sender_number, "awaiting_text_to_word")
         send_message(sender_number, "📝 Please send the text you want to convert into a Word document.")
         return
-    # Sub-menu Handlers (Google Drive)
     elif user_text == "drive_upload_file":
         set_user_session(sender_number, "awaiting_drive_upload")
         send_message(sender_number, "📎 Please send the file you want to upload to your Google Drive.")
@@ -790,7 +785,6 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "📝 What is the exact name of the file you want to analyze?")
         return
 
-    # If no menu option is matched, process as a natural language request
     send_message(sender_number, "🤖 Analyzing your request...")
     scheduler.add_job(
         func=process_natural_language_request,
@@ -800,7 +794,6 @@ def handle_text_message(user_text, sender_number, session_data):
     )
 
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def process_natural_language_request(user_text, sender_number):
     intent_data = route_user_intent(user_text)
     intent = intent_data.get("intent")
@@ -845,9 +838,9 @@ def process_natural_language_request(user_text, sender_number):
 
                 doc_type = new_session["doc_type"]
                 if doc_type == "resume":
-                    response_text = "I've analyzed the resume from your Drive. You can now ask me questions about it (e.g., 'what are the key skills?')."
+                    response_text = "I've analyzed the resume from your Drive. You can now ask me questions about it."
                 else:
-                    response_text = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
+                    response_text = "I've finished reading your document from Drive. You can ask me to summarize it."
         else:
             response_text = "I didn't understand which file you want to analyze. Please be more specific."
 
@@ -888,6 +881,7 @@ def process_natural_language_request(user_text, sender_number):
             "• `.dev Secret_key`: Used to send messages to all the users.\n"
             "• `.test Secret_key`: Used to test a new fucntion in the code.\n"
             "• `.nuke`: Delete all users data.\n"
+            "• `.stats`: Gives all Registered Users Details.\n"
             "✨ *Hidden Commands*\n"
             "• `.reminders`: See a list of all your active reminders.\n"
             "• `.reconnect`: Refresh your Google account connection.\n\n"
@@ -898,11 +892,9 @@ def process_natural_language_request(user_text, sender_number):
         reminders_to_set = entities
         if isinstance(reminders_to_set, list) and reminders_to_set:
             if len(reminders_to_set) > 1:
-                send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders for you. I'll send a confirmation for each one.")
+                send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders...")
             for rem in reminders_to_set:
-                 task = rem.get("task")
-                 timestamp = rem.get("timestamp")
-                 recurrence = rem.get("recurrence")
+                 task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
                  conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
                  send_message(sender_number, conf)
                  time.sleep(1)
@@ -912,11 +904,7 @@ def process_natural_language_request(user_text, sender_number):
 
     elif intent == "log_expense":
         if entities:
-            confirmations = []
-            for e in entities:
-                if isinstance(e.get('cost'), (int, float)):
-                    conf = log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp'))
-                    confirmations.append(conf)
+            confirmations = [log_expense(sender_number, e.get('cost'), e.get('item'), e.get('place'), e.get('timestamp')) for e in entities if isinstance(e.get('cost'), (int, float))]
             response_text = "\n".join(confirmations)
         else:
             response_text = "Sorry, I couldn't understand that as an expense."
@@ -969,9 +957,7 @@ def process_and_schedule_reminders(user_text, sender_number):
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Okay, scheduling {len(reminders_to_set)} reminders. I'll send a confirmation for each.")
             for rem in reminders_to_set:
-                task = rem.get("task")
-                timestamp = rem.get("timestamp")
-                recurrence = rem.get("recurrence")
+                task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, conf)
                 time.sleep(1)
@@ -1013,42 +999,24 @@ def convert_text_to_word(text):
     doc.save(file_path); return file_path
 
 def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
-    """
-    Logs an expense. If Google is connected, it logs to a Google Sheet.
-    Otherwise, it logs to the local user database.
-    """
     creds = get_credentials_from_db(sender_number)
     
     try:
-        # The AI now provides a full timestamp string if available.
-        # date_parser will handle "YYYY-MM-DD HH:MM:SS" or use the current time if the string is null.
         expense_time = date_parser.parse(timestamp_str) if timestamp_str else datetime.now(pytz.timezone('Asia/Kolkata'))
     except (date_parser.ParserError, TypeError):
-        # Fallback to current time if parsing fails or timestamp_str is None
         expense_time = datetime.now(pytz.timezone('Asia/Kolkata'))
 
     tz = pytz.timezone('Asia/Kolkata')
     if expense_time.tzinfo is None:
         expense_time = tz.localize(expense_time)
 
-    expense_data = {
-        "cost": amount, 
-        "item": item, 
-        "place": place or "N/A", 
-        "timestamp": expense_time
-    }
+    expense_data = {"cost": amount, "item": item, "place": place or "N/A", "timestamp": expense_time}
 
     if creds:
-        # User is connected to Google, log to Google Sheet
         return append_expense_to_sheet(creds, sender_number, expense_data)
     else:
-        # User is not connected, log to local JSON
-        expense_data["timestamp"] = expense_time.isoformat() # Convert datetime to string for JSON
-        users_collection.update_one(
-            {"_id": sender_number},
-            {"$push": {"expenses": expense_data}},
-            upsert=True
-        )
+        expense_data["timestamp"] = expense_time.isoformat()
+        users_collection.update_one({"_id": sender_number}, {"$push": {"expenses": expense_data}}, upsert=True)
         log_message = f"✅ Logged locally: *₹{amount:.2f}* for *{item.title()}*"
         if place and place != "N/A": log_message += f" at *{place.title()}*"
         log_message += "\n\n💡 Connect your Google Account to log expenses to a live Google Sheet!"
@@ -1071,8 +1039,7 @@ def send_daily_briefing():
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
-        print("No users found. Skipping job.")
-        return
+        print("No users found. Skipping job."); return
 
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
@@ -1080,23 +1047,15 @@ def send_daily_briefing():
     
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
-        user_id = user["_id"]
-        user_name = user.get("name", "there")
-        user_location = user.get("location", "Vijayawada") 
+        user_id, user_name, user_location = user["_id"], user.get("name", "there"), user.get("location", "Vijayawada")
         weather_data = get_raw_weather_data(city=user_location)
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-        
         greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-        quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!")
-        detailed_history = briefing_content.get("detailed_history", "No historical fact found for today.")
-        detailed_weather = briefing_content.get("detailed_weather", "Weather data is currently unavailable.")
-        
-        quote_explanation = quote_explanation.replace('\n', ' ')
-        detailed_history = detailed_history.replace('\n', ' ')
-        detailed_weather = detailed_weather.replace('\n', ' ')
+        quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!").replace('\n', ' ')
+        detailed_history = briefing_content.get("detailed_history", "No historical fact found.").replace('\n', ' ')
+        detailed_weather = briefing_content.get("detailed_weather", "Weather data unavailable.").replace('\n', ' ')
 
-        template_name = "daily_briefing_v3" 
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
@@ -1106,37 +1065,42 @@ def send_daily_briefing():
                 {"type": "text", "text": detailed_weather}
             ]}
         ]
-        
-        send_template_message(user_id, template_name, components)
+        send_template_message(user_id, "daily_briefing_v3", components)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
+
+def send_daily_email_summaries():
+    """Scheduled job to send email summaries to all connected users."""
+    print(f"--- Running Daily Email Summary Job at {datetime.now()} ---")
+    all_users = list(get_all_users_from_db())
+    if not all_users:
+        print("No users found. Skipping job."); return
+    
+    for user in all_users:
+        if user.get("is_google_connected"):
+            user_id, user_name = user["_id"], user.get("name", "there")
+            creds = get_credentials_from_db(user_id)
+            if creds:
+                send_email_summary_for_user(user_id, user_name, creds)
+                time.sleep(2) # Stagger messages
+    print("--- Daily Email Summary Job Finished ---")
 
 def send_test_briefing(developer_number):
     print(f"--- Running Test Briefing for {developer_number} ---")
     user = get_user_from_db(developer_number)
     if not user:
-        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
-        return
+        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database."); return
 
-    festival = get_indian_festival_today()
-    quote, author = get_daily_quote()
-    history_events = get_on_this_day_in_history()
-    user_name = user.get("name", "Developer")
-    user_location = user.get("location", "Vijayawada")
+    festival, (quote, author), history_events = get_indian_festival_today(), get_daily_quote(), get_on_this_day_in_history()
+    user_name, user_location = user.get("name", "Developer"), user.get("location", "Vijayawada")
     weather_data = get_raw_weather_data(city=user_location)
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-    
     greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-    quote_explanation = briefing_content.get("quote_explanation", "Test explanation.")
-    detailed_history = briefing_content.get("detailed_history", "Test history.")
-    detailed_weather = briefing_content.get("detailed_weather", "Test weather.")
+    quote_explanation = briefing_content.get("quote_explanation", "Test explanation.").replace('\n', ' ')
+    detailed_history = briefing_content.get("detailed_history", "Test history.").replace('\n', ' ')
+    detailed_weather = briefing_content.get("detailed_weather", "Test weather.").replace('\n', ' ')
 
-    quote_explanation = quote_explanation.replace('\n', ' ')
-    detailed_history = detailed_history.replace('\n', ' ')
-    detailed_weather = detailed_weather.replace('\n', ' ')
-
-    template_name = "daily_briefing_v3"
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
@@ -1146,48 +1110,30 @@ def send_test_briefing(developer_number):
             {"type": "text", "text": detailed_weather}
         ]}
     ]
-    
-    send_template_message(developer_number, template_name, components)
+    send_template_message(developer_number, "daily_briefing_v3", components)
     print("--- Test Briefing Finished ---")
-
 
 def send_update_notification_to_all_users(feature_list):
     if not ADMIN_SECRET_KEY:
-        print("ADMIN_SECRET_KEY is not set. Cannot send notifications.")
-        return
+        print("ADMIN_SECRET_KEY is not set. Cannot send notifications."); return
     print("--- Sending update notifications to all users ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
-        print("No users found, skipping notifications.")
-        return
+        print("No users found, skipping notifications."); return
 
-    template_name = "bot_update_notification"
-    components = [{
-        "type": "body",
-        "parameters": [{
-            "type": "text",
-            "text": feature_list
-        }]
-    }]
-
+    components = [{"type": "body", "parameters": [{"type": "text", "text": feature_list}]}]
     print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
     for user in all_users:
-        send_template_message(user["_id"], template_name, components)
+        send_template_message(user["_id"], "bot_update_notification", components)
         time.sleep(1)
     print("--- Finished sending update notifications ---")
 
-
-# === RUN APP ===
 if __name__ == '__main__':
     if not scheduler.get_job('daily_briefing_job'):
-        scheduler.add_job(
-            func=send_daily_briefing,
-            trigger='cron',
-            hour=8,
-            minute=0,
-            timezone='Asia/Kolkata',
-            id='daily_briefing_job',
-            replace_existing=True
-        )
+        scheduler.add_job(func=send_daily_briefing, trigger='cron', hour=8, minute=0, id='daily_briefing_job', replace_existing=True)
+    
+    if not scheduler.get_job('daily_email_summary_job'):
+        scheduler.add_job(func=send_daily_email_summaries, trigger='cron', hour=9, minute=0, id='daily_email_summary_job', replace_existing=True)
+
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
