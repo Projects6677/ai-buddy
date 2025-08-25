@@ -122,19 +122,27 @@ def route_user_intent(text):
        - Triggered by requests to find, search for, or get a video from YouTube.
        - "entities": {{"query": "The search term for the video."}}
 
-    9. "drive_search_file":
-       - Triggered by requests to find or search for a file in Google Drive.
-       - "entities": {{"query": "The name or keyword of the file to search for."}}
+    9. "get_bot_identity":
+       - Triggered by questions like "who are you?", "what are you?", "who made you?", or "who created you?".
+       - "entities": {{}}
 
-    10. "drive_analyze_file":
+    10. "get_features_list":
+        - Triggered by questions like "what can you do?", "what are your features?", "features", or "show me your features".
+        - "entities": {{}}
+
+    11. "drive_search_file":
+        - Triggered by requests to find or search for a file in Google Drive.
+        - "entities": {{"query": "The name or keyword of the file to search for."}}
+
+    12. "drive_analyze_file":
         - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
         - "entities": {{"filename": "The exact or partial filename to analyze."}}
 
-    11. "drive_upload_file":
+    13. "drive_upload_file":
         - Triggered by requests to save or upload the *next* file to Google Drive. This is used when the user *has not* sent the file yet but is indicating they want to.
         - "entities": {{}}
 
-    12. "general_query":
+    14. "general_query":
         - This is the default intent for any other general question or command.
         - "entities": {{}}
 
