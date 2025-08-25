@@ -35,7 +35,6 @@ from grok_ai import (
     analyze_email_subject,
     edit_email_body,
     write_email_body_with_grok,
-    translate_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
     is_document_followup_question
@@ -569,11 +568,6 @@ def handle_text_message(user_text, sender_number, session_data):
                 response_text = ai_reply(user_text)
                 send_message(sender_number, response_text)
             return
-        elif current_state == "awaiting_translation":
-            response_text = translate_with_grok(user_text)
-            set_user_session(sender_number, None)
-            send_message(sender_number, response_text)
-            return
         elif current_state == "awaiting_text_to_pdf":
             pdf_path = convert_text_to_pdf(user_text)
             send_file_to_user(sender_number, pdf_path, "application/pdf", "📄 Here is your converted PDF file.")
@@ -740,17 +734,13 @@ def handle_text_message(user_text, sender_number, session_data):
         send_conversion_menu(sender_number)
         return
     elif user_text == "5":
-        set_user_session(sender_number, "awaiting_translation")
-        send_message(sender_number, "🌍 What text would you like to translate, and to which language? (e.g., 'Hello how are you to Spanish')")
-        return
-    elif user_text == "6":
         set_user_session(sender_number, "awaiting_weather")
         send_message(sender_number, "🏙️ Enter a city or location to get the current weather.")
         return
-    elif user_text == "7":
+    elif user_text == "6":
         send_message(sender_number, "💱 What would you like to convert? (e.g., '100 USD to INR')")
         return
-    elif user_text == "8":
+    elif user_text == "7":
         creds = get_credentials_from_db(sender_number)
         if creds:
             set_user_session(sender_number, "awaiting_email_recipient")
@@ -758,7 +748,7 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_message(sender_number, "⚠️ To use the AI Email Assistant, you must first connect your Google account.")
         return
-    elif user_text == "9":
+    elif user_text == "8":
         creds = get_credentials_from_db(sender_number)
         if creds:
             send_google_drive_menu(sender_number)
@@ -885,7 +875,6 @@ def process_natural_language_request(user_text, sender_number):
             "• *Ask Me Anything*: Get answers to general questions.\n"
             "• *YouTube Search*: Find any video from YouTube.\n"
             "• *Fix Grammar*: I can correct your English grammar and spelling.\n"
-            "• *AI Translator*: Translate text between many languages.\n"
             "• *Weather Forecast*: Get the current weather for any city.\n"
             "• *Currency Converter*: Convert between different currencies.\n\n"
             "🗓️ *Productivity*\n"
@@ -895,7 +884,7 @@ def process_natural_language_request(user_text, sender_number):
             "📁 *File & Document Management*\n"
             "• *File Conversion*: Convert between PDF, Word, and Text.\n"
             "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
-            "💣 *Developer Only Commands*\n"
+             "💣 *Developer Only Commands*\n"
             "• `.dev Secret_key`: Used to send messages to all the users.\n"
             "• `.test Secret_key`: Used to test a new fucntion in the code.\n"
             "• `.nuke`: Delete all users data.\n"
