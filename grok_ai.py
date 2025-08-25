@@ -267,16 +267,3 @@ def edit_email_body(original_draft, edit_instruction):
     except Exception as e:
         print(f"Grok email editing error: {e}")
         return None
-
-def translate_with_grok(text):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
-    system_prompt = "You are a translation assistant. The user will provide text to be translated, and they will specify the target language. Your task is to provide the translation. Only return the translated text."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}], "temperature": 0.3 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        response.raise_for_status()
-        translated_text = response.json()["choices"][0]["message"]["content"].strip()
-        return f"🌍 Translated:\n\n_{translated_text}_"
-    except Exception as e:
-        print(f"Grok Translation error: {e}")
-        return "⚠️ Sorry, the translation service is currently unavailable."
