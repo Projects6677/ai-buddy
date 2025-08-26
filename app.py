@@ -35,17 +35,18 @@ from grok_ai import (
     analyze_email_subject,
     edit_email_body,
     write_email_body_with_grok,
-    translate_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
-    is_document_followup_question
+    is_document_followup_question,
+    generate_email_summary
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
 from google_calendar_integration import get_google_auth_flow, create_google_calendar_event
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
-from youtube_search import search_youtube_for_video # <-- NEW IMPORT
+from youtube_search import search_youtube_for_video
+from email_summary import send_email_summary_for_user # Make sure this is the only import from email_summary
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -103,6 +104,14 @@ def get_user_session(sender_number):
 
 def get_all_users_from_db():
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1, "location": 1})
+
+def delete_user_data_from_db(user_number):
+    """Deletes a specific user's data from the database and removes their scheduled jobs."""
+    deleted_count = users_collection.delete_one({"_id": user_number}).deleted_count
+    jobs_to_delete = [job.id for job in scheduler.get_jobs() if job.id.startswith(f"reminder_{user_number}")]
+    for job_id in jobs_to_delete:
+        scheduler.remove_job(job_id)
+    return deleted_count
 
 def delete_all_users_from_db():
     return users_collection.delete_many({})
@@ -417,15 +426,17 @@ def handle_text_message(user_text, sender_number, session_data):
         return
 
     if user_text.startswith("."):
-        if user_text.startswith(".dev"):
+        parts = user_text.split()
+        command = parts[0].lower()
+        
+        if command == ".dev":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            parts = user_text.split()
             if len(parts) < 3:
                 send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
                 return
-            command, key, features = parts[0], parts[1], " ".join(parts[2:])
+            key, features = parts[1], " ".join(parts[2:])
             if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
                 send_message(sender_number, "❌ Invalid admin secret key.")
                 return
@@ -433,11 +444,10 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
             return
 
-        elif user_text.startswith(".test"):
+        elif command == ".test":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            parts = user_text.split()
             if len(parts) != 2:
                 send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
                 return
@@ -449,31 +459,46 @@ def handle_text_message(user_text, sender_number, session_data):
             send_test_briefing(sender_number)
             return
             
-        elif user_text.lower() == ".nuke":
+        elif command == ".nuke":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
-            user_result = delete_all_users_from_db()
-            scheduler.remove_all_jobs()
-            user_count = user_result.deleted_count
-            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
-            return
+            if len(parts) > 1 and parts[1].lower() != "all":
+                # Nuke specific user
+                user_name_to_nuke = " ".join(parts[1:]).title()
+                user_to_delete = users_collection.find_one({"name": user_name_to_nuke})
+                if user_to_delete:
+                    user_number_to_nuke = user_to_delete["_id"]
+                    deleted_count = delete_user_data_from_db(user_number_to_nuke)
+                    send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {deleted_count} user(s) with the name '{user_name_to_nuke}' and their scheduled reminders.")
+                else:
+                    send_message(sender_number, f"❌ User with name '{user_name_to_nuke}' not found.")
+                return
+            else:
+                # Nuke all users
+                user_result = delete_all_users_from_db()
+                scheduler.remove_all_jobs()
+                user_count = user_result.deleted_count
+                send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+                return
 
-        elif user_text.lower() == ".stats":
+        elif command == ".stats":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            count = count_users_in_db()
-            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+            users = list(get_all_users_from_db())
+            count = len(users)
+            user_names = [user.get("name", "N/A") for user in users]
+            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*\n\nUser Names: {', '.join(user_names)}"
             send_message(sender_number, stats_message)
             return
         
-        elif user_text.lower() == ".reconnect":
+        elif command == ".reconnect":
             send_google_auth_link(sender_number)
             return
         
-        elif user_text.lower() == ".reminders":
+        elif command == ".reminders":
             reminders = get_all_reminders(sender_number, scheduler)
             send_reminders_list(sender_number, reminders)
             return
@@ -802,6 +827,7 @@ def handle_text_message(user_text, sender_number, session_data):
     )
 
 
+# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def process_natural_language_request(user_text, sender_number):
     intent_data = route_user_intent(user_text)
     intent = intent_data.get("intent")
@@ -1015,7 +1041,7 @@ def send_daily_briefing():
 
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
-    history_events = get_on_this_day_in history()
+    history_events = get_on_this_day_in_history()
     
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
