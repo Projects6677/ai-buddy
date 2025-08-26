@@ -37,8 +37,7 @@ from grok_ai import (
     write_email_body_with_grok,
     analyze_document_context,
     get_contextual_ai_response,
-    is_document_followup_question,
-    generate_email_summary
+    is_document_followup_question
 )
 from email_sender import send_email
 from services import get_daily_quote, get_on_this_day_in_history, get_raw_weather_data, get_indian_festival_today
@@ -46,7 +45,6 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
-from email_summary import send_email_summary_for_user
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -110,10 +108,8 @@ def delete_all_users_from_db():
 
 def delete_user_by_id(user_id):
     """Deletes a single user and their reminders by their phone number ID."""
-    # Delete user from MongoDB
     delete_result = users_collection.delete_one({"_id": user_id})
     
-    # Delete associated jobs from scheduler
     jobs_deleted_count = 0
     for job in scheduler.get_jobs():
         if job.id.startswith(f"reminder_{user_id}"):
@@ -917,12 +913,6 @@ def process_natural_language_request(user_text, sender_number):
             "📁 *File & Document Management*\n"
             "• *File Conversion*: Convert between PDF, Word, and Text.\n"
             "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
-             "⚙️ *Developer Commands*\n"
-            "• `.stats`: View bot usage statistics.\n"
-            "• `.nuke all`: Delete all users and reminders.\n"
-            "• `.nuke <phone_number>`: Delete a specific user.\n"
-            "• `.dev <key> <features>`: Send an update notification.\n"
-            "• `.test <key>`: Send a test briefing to yourself.\n\n"
             "✨ *Hidden Commands*\n"
             "• `.reminders`: See a list of all your active reminders.\n"
             "• `.reconnect`: Refresh your Google account connection.\n\n"
@@ -1110,21 +1100,9 @@ def send_daily_briefing():
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
-def send_daily_email_summaries():
-    """Scheduled job to send email summary notifications to all connected users."""
-    print(f"--- Running Daily Email Summary Job at {datetime.now()} ---")
-    all_users = list(get_all_users_from_db())
-    if not all_users:
-        print("No users found. Skipping job."); return
-    
-    for user in all_users:
-        if user.get("is_google_connected"):
-            user_id, user_name = user["_id"], user.get("name", "there")
-            creds = get_credentials_from_db(user_id)
-            if creds:
-                send_email_summary_for_user(user_id, user_name, creds)
-                time.sleep(2) # Stagger messages
-    print("--- Daily Email Summary Job Finished ---")
+# This function is no longer needed as the feature has been removed
+# def send_daily_email_summaries():
+#     pass
 
 def send_test_briefing(developer_number):
     print(f"--- Running Test Briefing for {developer_number} ---")
@@ -1173,8 +1151,9 @@ if __name__ == '__main__':
     if not scheduler.get_job('daily_briefing_job'):
         scheduler.add_job(func=send_daily_briefing, trigger='cron', hour=8, minute=0, id='daily_briefing_job', replace_existing=True)
     
-    if not scheduler.get_job('daily_email_summary_job'):
-        scheduler.add_job(func=send_daily_email_summaries, trigger='cron', hour=9, minute=0, id='daily_email_summary_job', replace_existing=True)
+    # The email summary job has been removed
+    # if not scheduler.get_job('daily_email_summary_job'):
+    #     scheduler.add_job(func=send_daily_email_summaries, trigger='cron', hour=9, minute=0, id='daily_email_summary_job', replace_existing=True)
 
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
