@@ -46,7 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
-from email_summary import send_email_summary_for_user # Make sure this is the only import from email_summary
+from email_summary import send_email_summary_for_user # New Import
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -104,14 +104,6 @@ def get_user_session(sender_number):
 
 def get_all_users_from_db():
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1, "location": 1})
-
-def delete_user_data_from_db(user_number):
-    """Deletes a specific user's data from the database and removes their scheduled jobs."""
-    deleted_count = users_collection.delete_one({"_id": user_number}).deleted_count
-    jobs_to_delete = [job.id for job in scheduler.get_jobs() if job.id.startswith(f"reminder_{user_number}")]
-    for job_id in jobs_to_delete:
-        scheduler.remove_job(job_id)
-    return deleted_count
 
 def delete_all_users_from_db():
     return users_collection.delete_many({})
@@ -291,7 +283,6 @@ def handle_document_message(message, sender_number, session_data, message_type):
         elif isinstance(session_data, str):
             simple_state = session_data
 
-        # This state is set when the NLP detects a drive upload intent *before* the file is sent
         if simple_state == "awaiting_drive_upload_nlp":
             send_message(sender_number, "📥 Got it. Uploading to your Google Drive...")
             creds = get_credentials_from_db(sender_number)
@@ -329,7 +320,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
             return
 
         if simple_state == "awaiting_email_attachment":
-            downloaded_path, original_filename, _ = download_media_from_whatsapp(media_id, message)
+            downloaded_path, _, _ = download_media_from_whatsapp(media_id, message)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
                     session_data["attachment_paths"] = []
@@ -426,17 +417,15 @@ def handle_text_message(user_text, sender_number, session_data):
         return
 
     if user_text.startswith("."):
-        parts = user_text.split()
-        command = parts[0].lower()
-        
-        if command == ".dev":
+        if user_text.startswith(".dev"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
+            parts = user_text.split()
             if len(parts) < 3:
                 send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
                 return
-            key, features = parts[1], " ".join(parts[2:])
+            command, key, features = parts[0], parts[1], " ".join(parts[2:])
             if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
                 send_message(sender_number, "❌ Invalid admin secret key.")
                 return
@@ -444,10 +433,11 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
             return
 
-        elif command == ".test":
+        elif user_text.startswith(".test"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
+            parts = user_text.split()
             if len(parts) != 2:
                 send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
                 return
@@ -459,46 +449,31 @@ def handle_text_message(user_text, sender_number, session_data):
             send_test_briefing(sender_number)
             return
             
-        elif command == ".nuke":
+        elif user_text.lower() == ".nuke":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
-            if len(parts) > 1 and parts[1].lower() != "all":
-                # Nuke specific user
-                user_name_to_nuke = " ".join(parts[1:]).title()
-                user_to_delete = users_collection.find_one({"name": user_name_to_nuke})
-                if user_to_delete:
-                    user_number_to_nuke = user_to_delete["_id"]
-                    deleted_count = delete_user_data_from_db(user_number_to_nuke)
-                    send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {deleted_count} user(s) with the name '{user_name_to_nuke}' and their scheduled reminders.")
-                else:
-                    send_message(sender_number, f"❌ User with name '{user_name_to_nuke}' not found.")
-                return
-            else:
-                # Nuke all users
-                user_result = delete_all_users_from_db()
-                scheduler.remove_all_jobs()
-                user_count = user_result.deleted_count
-                send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
-                return
+            user_result = delete_all_users_from_db()
+            scheduler.remove_all_jobs()
+            user_count = user_result.deleted_count
+            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+            return
 
-        elif command == ".stats":
+        elif user_text.lower() == ".stats":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            users = list(get_all_users_from_db())
-            count = len(users)
-            user_names = [user.get("name", "N/A") for user in users]
-            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*\n\nUser Names: {', '.join(user_names)}"
+            count = count_users_in_db()
+            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
             send_message(sender_number, stats_message)
             return
         
-        elif command == ".reconnect":
+        elif user_text.lower() == ".reconnect":
             send_google_auth_link(sender_number)
             return
         
-        elif command == ".reminders":
+        elif user_text.lower() == ".reminders":
             reminders = get_all_reminders(sender_number, scheduler)
             send_reminders_list(sender_number, reminders)
             return
@@ -531,16 +506,14 @@ def handle_text_message(user_text, sender_number, session_data):
                     doc_type = new_session["doc_type"]
                     data = new_session["data"]
                     if doc_type == "resume":
-                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'critique my resume' or 'what are my key skills?')."
+                        response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
                     elif doc_type == "project_plan":
-                        response = "I've read your project plan. You can now ask me questions about it (e.g., 'what is the main goal?' or 'summarize the tech stack')."
+                        response = "I've read the project plan from your Drive. You can now ask me questions about it."
                     elif doc_type == "meeting_invite":
                         task = data.get("task", "this event")
-                        response = f"I see this is an invitation for '{task}'. Would you like me to schedule it for you?"
-                    elif doc_type == "q_and_a":
-                        response = "I've processed the questions in your document. You can ask me to 'answer all questions', or ask about a specific one."
+                        response = f"I see this is an invitation for '{task}' from your Drive. Would you like me to schedule it?"
                     else:
-                        response = "I've finished reading your document. You can ask me to summarize it, or ask any specific questions you have about the content."
+                        response = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
                     send_message(sender_number, response)
 
             else:
@@ -573,7 +546,6 @@ def handle_text_message(user_text, sender_number, session_data):
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
                 set_user_session(sender_number, None)
-                # Fall through to the main menu logic
             else:
                 doc_text = session_data.get("document_text")
                 send_message(sender_number, "🤖 Thinking...")
@@ -595,11 +567,6 @@ def handle_text_message(user_text, sender_number, session_data):
             else:
                 response_text = ai_reply(user_text)
                 send_message(sender_number, response_text)
-            return
-        elif current_state == "awaiting_translation":
-            response_text = translate_with_grok(user_text)
-            set_user_session(sender_number, None)
-            send_message(sender_number, response_text)
             return
         elif current_state == "awaiting_text_to_pdf":
             pdf_path = convert_text_to_pdf(user_text)
@@ -733,7 +700,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 if new_body:
                     session_data["body"] = new_body
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_You can ask for more changes, type *'attach'* for a file, or type *'send'*._")
+                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._")
                 else:
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
@@ -827,7 +794,6 @@ def handle_text_message(user_text, sender_number, session_data):
     )
 
 
-# === UI, HELPERS, & LOGIC FUNCTIONS ===
 def process_natural_language_request(user_text, sender_number):
     intent_data = route_user_intent(user_text)
     intent = intent_data.get("intent")
@@ -885,6 +851,37 @@ def process_natural_language_request(user_text, sender_number):
             response_text = search_youtube_for_video(creds, query)
         else:
             response_text = "I didn't understand what you want to search for on YouTube."
+
+    elif intent == "get_bot_identity":
+        response_text = (
+            "I am AI Buddy, a smart WhatsApp assistant 🤖.\n\n"
+            "I was created by *Sajja Dhruvin Sai* and *Leela Ranga Prasad*, "
+            "two passionate B.Tech 2nd year students from SAHE University.\n\n"
+            "They designed me to make everyday digital tasks easier and more conversational. "
+            "You can ask me to set reminders, search for information, manage your files, and much more!"
+        )
+
+    elif intent == "get_features":
+        response_text = (
+            "Of course! Here is a full list of my capabilities:\n\n"
+            "🧠 *AI & Information*\n"
+            "• *Ask Me Anything*: Get answers to general questions.\n"
+            "• *YouTube Search*: Find any video from YouTube.\n"
+            "• *Fix Grammar*: I can correct your English grammar and spelling.\n"
+            "• *Weather Forecast*: Get the current weather for any city.\n"
+            "• *Currency Converter*: Convert between different currencies.\n\n"
+            "🗓️ *Productivity*\n"
+            "• *Set Reminders*: Set one-time or recurring reminders.\n"
+            "• *AI Email Assistant*: I can help you write and send professional emails.\n"
+            "• *Expense Tracker*: Log your expenses to a live Google Sheet.\n\n"
+            "📁 *File & Document Management*\n"
+            "• *File Conversion*: Convert between PDF, Word, and Text.\n"
+            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
+            "✨ *Hidden Commands*\n"
+            "• `.reminders`: See a list of all your active reminders.\n"
+            "• `.reconnect`: Refresh your Google account connection.\n\n"
+            "Type `menu` at any time to see the main options!"
+        )
 
     elif intent == "set_reminder":
         reminders_to_set = entities
@@ -1068,7 +1065,7 @@ def send_daily_briefing():
     print("--- Daily Briefing Job Finished ---")
 
 def send_daily_email_summaries():
-    """Scheduled job to send email summary notifications to all connected users."""
+    """Scheduled job to send email summaries to all connected users."""
     print(f"--- Running Daily Email Summary Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
@@ -1077,8 +1074,10 @@ def send_daily_email_summaries():
     for user in all_users:
         if user.get("is_google_connected"):
             user_id, user_name = user["_id"], user.get("name", "there")
-            send_email_summary_notification(user_id, user_name)
-            time.sleep(2) # Stagger messages
+            creds = get_credentials_from_db(user_id)
+            if creds:
+                send_email_summary_for_user(user_id, user_name, creds)
+                time.sleep(2) # Stagger messages
     print("--- Daily Email Summary Job Finished ---")
 
 def send_test_briefing(developer_number):
