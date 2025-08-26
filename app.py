@@ -46,7 +46,7 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
-from email_summary import send_email_summary_for_user # New Import
+from email_summary import send_email_summary_for_user
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
 from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
 from document_processor import get_text_from_file
@@ -107,6 +107,20 @@ def get_all_users_from_db():
 
 def delete_all_users_from_db():
     return users_collection.delete_many({})
+
+def delete_user_by_id(user_id):
+    """Deletes a single user and their reminders by their phone number ID."""
+    # Delete user from MongoDB
+    delete_result = users_collection.delete_one({"_id": user_id})
+    
+    # Delete associated jobs from scheduler
+    jobs_deleted_count = 0
+    for job in scheduler.get_jobs():
+        if job.id.startswith(f"reminder_{user_id}"):
+            scheduler.remove_job(job.id)
+            jobs_deleted_count += 1
+            
+    return delete_result.deleted_count > 0, jobs_deleted_count
 
 def delete_all_scheduled_jobs_from_db():
     """Deletes all scheduled jobs from the database."""
@@ -449,23 +463,49 @@ def handle_text_message(user_text, sender_number, session_data):
             send_test_briefing(sender_number)
             return
             
-        elif user_text.lower() == ".nuke":
+        elif user_text.startswith(".nuke"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
-            user_result = delete_all_users_from_db()
-            scheduler.remove_all_jobs()
-            user_count = user_result.deleted_count
-            send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+            parts = user_text.split()
+            if len(parts) != 2:
+                send_message(sender_number, "❌ Invalid format. Use `.nuke all` or `.nuke <phone_number>`.")
+                return
+
+            target = parts[1]
+            if target == "all":
+                user_result = delete_all_users_from_db()
+                scheduler.remove_all_jobs()
+                user_count = user_result.deleted_count
+                send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+            else:
+                user_deleted, jobs_deleted = delete_user_by_id(target)
+                if user_deleted:
+                    send_message(sender_number, f"✅ Successfully deleted user `{target}` and their {jobs_deleted} reminder(s).")
+                else:
+                    send_message(sender_number, f"😕 Could not find a user with the phone number `{target}`.")
             return
 
         elif user_text.lower() == ".stats":
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
-            count = count_users_in_db()
-            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*"
+            
+            all_users = list(get_all_users_from_db())
+            count = len(all_users)
+            
+            stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*\n\n"
+            if all_users:
+                user_list = []
+                for i, user in enumerate(all_users):
+                    user_name = user.get("name", "N/A")
+                    user_id = user.get("_id", "N/A")
+                    user_list.append(f"{i+1}. *{user_name}* (`{user_id}`)")
+                stats_message += "\n".join(user_list)
+            else:
+                stats_message += "_No users found._"
+                
             send_message(sender_number, stats_message)
             return
         
@@ -1065,7 +1105,7 @@ def send_daily_briefing():
     print("--- Daily Briefing Job Finished ---")
 
 def send_daily_email_summaries():
-    """Scheduled job to send email summaries to all connected users."""
+    """Scheduled job to send email summary notifications to all connected users."""
     print(f"--- Running Daily Email Summary Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
