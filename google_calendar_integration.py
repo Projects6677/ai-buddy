@@ -13,7 +13,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/youtube.readonly'  # <-- ADD THIS LINE
+    'https://www.googleapis.com/auth/youtube.readonly',
+    'https://www.googleapis.com/auth/userinfo.email' # <-- ADD THIS SCOPE
 ]
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")
 
@@ -31,13 +32,10 @@ def create_google_calendar_event(credentials, task, run_time):
     Creates an event on the user's primary Google Calendar and returns a link.
     """
     try:
-        # From google_calendar_integration.py
         service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
         
         end_time = run_time + timedelta(minutes=30)
 
-        # This is the most explicit and robust method. We provide a timezone-naive
-        # datetime string and a separate, explicit timezone identifier.
         event = {
             'summary': task,
             'description': f"Reminder set for {run_time.strftime('%I:%M %p')} via AI Buddy.",
