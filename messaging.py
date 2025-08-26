@@ -175,6 +175,50 @@ def send_delete_confirmation(to, job_id, task_name):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send delete confirmation to {to}: {e.response.text if e.response else e}")
 
+def send_meeting_proposal(to, proposed_time, session_id):
+    """Sends a yes/no confirmation for a proposed meeting time."""
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    formatted_time = proposed_time.strftime('%A, %b %d at %I:%M %p')
+    
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": f"🗓️ I found an available slot for everyone on:\n\n*{formatted_time}*\n\nWould you like me to schedule it?"
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"confirm_meeting_{session_id}",
+                            "title": "Yes, Schedule It"
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "cancel_meeting",
+                            "title": "No, Cancel"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    try:
+        requests.post(url, headers=headers, json=data, timeout=10).raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send meeting proposal to {to}: {e.response.text if e.response else e}")
+
 
 def send_conversion_menu(to):
     """Sends an interactive LIST menu for file conversions."""
