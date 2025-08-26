@@ -206,52 +206,6 @@ def generate_weather_summary(weather_data, location):
         return "⚠️ Sorry, I couldn't generate a detailed weather summary right now."
 
 
-# --- UPDATED EMAIL SUMMARY FUNCTION ---
-def generate_email_summary(emails, user_name):
-    """
-    Uses AI to create a structured summary of recent emails for a template.
-    """
-    if not GROK_API_KEY:
-        return {
-            "highlight": "Could not generate AI summary.",
-            "other_updates": f"You have {len(emails)} new emails.",
-            "suggestion": "Please check your Gmail app for details."
-        }
-
-    prompt = f"""
-    You are an expert executive assistant AI. Your task is to analyze a list of recent unread emails for a user named {user_name} and create a structured summary.
-
-    Here is the list of emails in JSON format:
-    {json.dumps(emails, indent=2)}
-
-    **Your response MUST be a JSON object with three keys: "highlight", "other_updates", and "suggestion".**
-
-    1.  **"highlight"**: Identify the single most important or urgent email. Create a one-sentence summary for it. Example: "You have a meeting request from John Doe about the Q3 project." If no emails are important, say "No urgent emails to highlight."
-    2.  **"other_updates"**: Briefly list the topics or senders of the less important emails. Example: "You also have updates from Asana, a newsletter from TechCrunch, and a promotion from Swiggy."
-    3.  **"suggestion"**: Provide a clear, actionable next step. Example: "You should probably reply to John Doe's meeting request first."
-
-    Keep each field concise to fit within a messaging template. Return only the JSON object.
-    """
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.5,
-        "response_format": {"type": "json_object"}
-    }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=90)
-        response.raise_for_status()
-        summary_json = json.loads(response.json()["choices"][0]["message"]["content"])
-        return summary_json
-    except Exception as e:
-        print(f"Grok email summary error: {e}")
-        return {
-            "highlight": "Error generating summary.",
-            "other_updates": "Could not process other emails.",
-            "suggestion": "An AI service error occurred."
-        }
-
-
 # --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
