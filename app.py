@@ -24,6 +24,7 @@ import pickle
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import mimetypes
+from googleapiclient.discovery import build
 
 
 from currency import convert_currency
@@ -45,8 +46,9 @@ from google_calendar_integration import get_google_auth_flow, create_google_cale
 from google_drive import upload_file_to_drive, search_files_in_drive, analyze_drive_file_content
 from google_sheets import append_expense_to_sheet, get_sheet_link
 from youtube_search import search_youtube_for_video
+from meeting_scheduler import find_common_free_time, create_meeting_event
 from reminders import schedule_reminder, get_all_reminders, delete_reminder
-from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu
+from messaging import send_message, send_template_message, send_interactive_menu, send_conversion_menu, send_reminders_list, send_delete_confirmation, send_google_drive_menu, send_meeting_proposal
 from document_processor import get_text_from_file
 from weather import get_weather
 
@@ -141,6 +143,16 @@ def get_credentials_from_db(sender_number):
         return creds
     return None
 
+def get_user_email_from_google(credentials):
+    """Fetches the user's primary email address from their Google profile."""
+    try:
+        service = build('oauth2', 'v2', credentials=credentials)
+        user_info = service.userinfo().get().execute()
+        return user_info.get('email')
+    except Exception as e:
+        print(f"Error fetching user email from Google: {e}")
+        return None
+
 def send_google_auth_link(sender_number):
     """Generates and sends the Google authentication link to a user."""
     if GOOGLE_REDIRECT_URI:
@@ -179,6 +191,11 @@ def google_auth_callback():
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
     save_credentials_to_db(sender_number, credentials)
+    
+    email = get_user_email_from_google(credentials)
+    if email:
+        create_or_update_user_in_db(sender_number, {"email": email})
+
     send_message(sender_number, "✅ Your Google account has been successfully connected!")
     set_user_session(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
@@ -426,6 +443,29 @@ def handle_text_message(user_text, sender_number, session_data):
         send_message(sender_number, "Deletion cancelled.")
         return
 
+    if user_text.startswith("confirm_meeting_"):
+        session_id = user_text.split("confirm_meeting_")[1]
+        if session_data and session_data.get("session_id") == session_id:
+            send_message(sender_number, "✅ Great! Scheduling the meeting and sending invitations now...")
+            
+            organizer_creds = get_credentials_from_db(sender_number)
+            attendees_emails = session_data["attendees_emails"]
+            start_time = date_parser.parse(session_data["start_time"])
+            end_time = start_time + timedelta(minutes=session_data["duration_minutes"])
+            topic = session_data["topic"]
+            
+            confirmation_message = create_meeting_event(organizer_creds, attendees_emails, start_time, end_time, topic)
+            send_message(sender_number, confirmation_message)
+            set_user_session(sender_number, None)
+        else:
+            send_message(sender_number, "😕 This meeting proposal has expired. Please try scheduling again.")
+        return
+
+    if user_text == "cancel_meeting":
+        send_message(sender_number, "👍 Okay, I've cancelled the meeting request.")
+        set_user_session(sender_number, None)
+        return
+
     if user_text.startswith("."):
         if user_text.startswith(".dev"):
             if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
@@ -521,6 +561,30 @@ def handle_text_message(user_text, sender_number, session_data):
         current_state = session_data
 
     if current_state:
+        if current_state == "awaiting_attendee_emails":
+            provided_email = user_text.strip()
+            if "@" in provided_email and "." in provided_email:
+                attendee_name = session_data["pending_attendee"]
+                session_data["attendees_emails"].append(provided_email)
+                
+                session_data["pending_attendees"].pop(0)
+                if session_data["pending_attendees"]:
+                    next_attendee = session_data["pending_attendees"][0]
+                    session_data["pending_attendee"] = next_attendee
+                    set_user_session(sender_number, session_data)
+                    send_message(sender_number, f"✅ Got it for {attendee_name}. Now, what is the email address for *{next_attendee}*?")
+                else:
+                    send_message(sender_number, "✅ Got all emails! Now finding a time for everyone...")
+                    scheduler.add_job(
+                        func=process_meeting_scheduling,
+                        trigger='date',
+                        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+                        args=[sender_number, session_data]
+                    )
+            else:
+                send_message(sender_number, "That doesn't look like a valid email address. Please try again.")
+            return
+
         if current_state == "awaiting_drive_analysis_query":
             send_message(sender_number, f"📄 Analyzing '*{user_text}*' from your Google Drive. This may take a moment...")
             creds = get_credentials_from_db(sender_number)
@@ -837,12 +901,56 @@ def process_natural_language_request(user_text, sender_number):
     response_text = ""
 
     creds = get_credentials_from_db(sender_number)
-    google_intents = ["drive_upload_file", "drive_search_file", "drive_analyze_file", "get_expense_sheet", "youtube_search"]
+    google_intents = ["drive_upload_file", "drive_search_file", "drive_analyze_file", "get_expense_sheet", "youtube_search", "schedule_meeting"]
     if intent in google_intents and not creds:
         send_message(sender_number, "⚠️ To use this Google feature, you must first connect your Google account.")
         return
 
-    if intent == "drive_upload_file":
+    if intent == "schedule_meeting":
+        user_data = get_user_from_db(sender_number)
+        organizer_email = user_data.get("email")
+        if not organizer_email:
+            send_message(sender_number, "⚠️ I couldn't find your email address. Please try reconnecting your Google account with `.reconnect`.")
+            return
+
+        attendees = entities.get("attendees", [])
+        topic = entities.get("topic", "Meeting")
+        duration = entities.get("duration_minutes", 30)
+        
+        session_id = str(int(time.time()))
+        new_session = {
+            "state": "scheduling_meeting",
+            "session_id": session_id,
+            "topic": topic,
+            "duration_minutes": duration,
+            "attendees_emails": [organizer_email],
+            "pending_attendees": []
+        }
+        
+        for name in attendees:
+            attendee_data = users_collection.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+            if attendee_data and attendee_data.get("email"):
+                new_session["attendees_emails"].append(attendee_data["email"])
+            else:
+                new_session["pending_attendees"].append(name)
+        
+        if new_session["pending_attendees"]:
+            new_session["state"] = "awaiting_attendee_emails"
+            first_pending = new_session["pending_attendees"][0]
+            new_session["pending_attendee"] = first_pending
+            set_user_session(sender_number, new_session)
+            send_message(sender_number, f"Okay, I can schedule a meeting about '{topic}'.\n\nI don't have the email address for *{first_pending}*. What is it?")
+        else:
+            send_message(sender_number, "✅ Got it! Finding a time for everyone...")
+            scheduler.add_job(
+                func=process_meeting_scheduling,
+                trigger='date',
+                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+                args=[sender_number, new_session]
+            )
+        return
+        
+    elif intent == "drive_upload_file":
         set_user_session(sender_number, "awaiting_drive_upload_nlp")
         send_message(sender_number, "Got it. Please send the file you want to upload to your Drive.")
         return
@@ -1100,10 +1208,6 @@ def send_daily_briefing():
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
 
-# This function is no longer needed as the feature has been removed
-# def send_daily_email_summaries():
-#     pass
-
 def send_test_briefing(developer_number):
     print(f"--- Running Test Briefing for {developer_number} ---")
     user = get_user_from_db(developer_number)
@@ -1151,9 +1255,5 @@ if __name__ == '__main__':
     if not scheduler.get_job('daily_briefing_job'):
         scheduler.add_job(func=send_daily_briefing, trigger='cron', hour=8, minute=0, id='daily_briefing_job', replace_existing=True)
     
-    # The email summary job has been removed
-    # if not scheduler.get_job('daily_email_summary_job'):
-    #     scheduler.add_job(func=send_daily_email_summaries, trigger='cron', hour=9, minute=0, id='daily_email_summary_job', replace_existing=True)
-
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
