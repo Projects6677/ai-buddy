@@ -67,6 +67,7 @@ ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
 DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
+BAILEYS_API_URL = os.environ.get("BAILEYS_API_URL")
 
 
 # --- DATABASE & SCHEDULER ---
@@ -652,6 +653,12 @@ def handle_text_message(user_text, sender_number, session_data):
             )
             set_user_session(sender_number, None)
             return
+        
+        if current_state == "awaiting_personal_whatsapp_link":
+            # This is the session state for the personal account linking flow
+            response_text = "⚠️ You must first link your personal WhatsApp account. Please scan the QR code I sent you."
+            send_message(sender_number, response_text)
+            return
 
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
@@ -863,9 +870,35 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
         return
     elif user_text == "9":
-        set_user_session(sender_number, "awaiting_message_details")
-        send_message(sender_number, "📝 What's the message you want to schedule, and who should it be sent to? (e.g., 'Remind Dhruvin to buy groceries tomorrow morning.')")
-        return
+        # Check if Baileys service is configured
+        if not BAILEYS_API_URL:
+            send_message(sender_number, "❌ The personal messaging service is not configured. This feature is disabled.")
+            return
+
+        # Request QR code from the external service
+        qr_url = f"{BAILEYS_API_URL}/qrcode"
+        try:
+            qr_response = requests.get(qr_url, timeout=10)
+            if qr_response.status_code == 200:
+                # Save the QR code image to a temporary file
+                qr_path = os.path.join("uploads", f"qr_{sender_number}.png")
+                with open(qr_path, "wb") as f:
+                    f.write(qr_response.content)
+
+                # Send the QR code image to the user
+                send_message(sender_number, "To schedule messages, you must first link your personal WhatsApp. Please scan this QR code with your phone.")
+                send_file_to_user(sender_number, qr_path, "image/png", "Scan this QR code to link your account.")
+                os.remove(qr_path) # Clean up the temporary file
+
+                # Set session state to wait for user to link account
+                set_user_session(sender_number, "awaiting_personal_whatsapp_link")
+                return
+            else:
+                send_message(sender_number, "❌ I'm sorry, I couldn't connect to the personal messaging service to get the QR code.")
+                return
+        except requests.exceptions.RequestException:
+            send_message(sender_number, "❌ I'm having trouble connecting to the personal messaging service. Please try again later.")
+            return
     elif user_text == "reminders_check":
         reminders = get_all_reminders(sender_number, scheduler)
         send_reminders_list(sender_number, reminders)
@@ -965,13 +998,44 @@ def process_natural_language_request(user_text, sender_number):
         return
     
     elif intent == "schedule_message":
-        send_message(sender_number, "I'm working on scheduling your message. This might take a moment...")
-        scheduler.add_job(
-            func=process_and_schedule_message,
-            trigger='date',
-            run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
-            args=[user_text, sender_number]
-        )
+        # First, check if the external service URL is configured
+        if not BAILEYS_API_URL:
+            send_message(sender_number, "❌ The personal messaging service is not configured. This feature is disabled.")
+            return
+
+        # Then, check if all required entities were found by the AI
+        contact_name = entities.get("contact_name")
+        timestamp = entities.get("timestamp")
+        message_text = entities.get("message_text")
+
+        if not contact_name or not timestamp or not message_text:
+            send_message(sender_number, "❌ I couldn't find the contact, time, or message in your request. Please try again.")
+            return
+
+        # Make the API call to your external Baileys service
+        send_message(sender_number, "✅ Got it! Scheduling your message now...")
+        
+        schedule_url = f"{BAILEYS_API_URL}/schedule"
+        payload = {
+            "contact_name": contact_name,
+            "message_text": message_text,
+            "timestamp": timestamp
+        }
+        
+        try:
+            response = requests.post(schedule_url, json=payload, timeout=20)
+            response.raise_for_status()
+            
+            result = response.json()
+            if result.get("status") == "success":
+                response_text = result.get("message", "Message scheduled successfully!")
+            else:
+                response_text = result.get("message", "An unknown error occurred while scheduling the message.")
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling Baileys service: {e}")
+            response_text = "❌ I'm sorry, I couldn't connect to the personal messaging service right now. Please try again later."
+        
+        send_message(sender_number, response_text)
         return
         
     elif intent == "drive_upload_file":
@@ -1142,11 +1206,31 @@ def process_and_schedule_message(user_text, sender_number):
             send_message(sender_number, "❌ I couldn't find the contact, time, or message in your request. Please try again.")
             return
 
-        # Placeholder for personal messaging logic
-        send_message(sender_number, f"✅ I'm trying to schedule a message for {contact_name} at {timestamp}.")
-        # This is where the new messaging library and QR code logic would go.
-        # send_qr_code(sender_number) if not is_linked(sender_number)
-        # schedule_personal_message(contact_name, message_text, timestamp)
+        # Make the API call to your external Baileys service
+        send_message(sender_number, "✅ Got it! Scheduling your message now...")
+        
+        schedule_url = f"{BAILEYS_API_URL}/schedule"
+        payload = {
+            "contact_name": contact_name,
+            "message_text": message_text,
+            "timestamp": timestamp
+        }
+        
+        try:
+            response = requests.post(schedule_url, json=payload, timeout=20)
+            response.raise_for_status()
+            
+            result = response.json()
+            if result.get("status") == "success":
+                response_text = result.get("message", "Message scheduled successfully!")
+            else:
+                response_text = result.get("message", "An unknown error occurred while scheduling the message.")
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling Baileys service: {e}")
+            response_text = "❌ I'm sorry, I couldn't connect to the personal messaging service right now. Please try again later."
+        
+        send_message(sender_number, response_text)
+        return
     else:
         send_message(sender_number, "I didn't understand that as a message to schedule. Please try again.")
 
