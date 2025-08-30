@@ -514,7 +514,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 user_result = delete_all_users_from_db()
                 scheduler.remove_all_jobs()
                 user_count = user_result.deleted_count
-                send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+                send_message(sender_number, "💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
             else:
                 user_deleted, jobs_deleted = delete_user_by_id(target)
                 if user_deleted:
@@ -604,13 +604,12 @@ def handle_text_message(user_text, sender_number, session_data):
                     set_user_session(sender_number, new_session)
 
                     doc_type = new_session["doc_type"]
-                    data = new_session["data"]
                     if doc_type == "resume":
                         response = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
                     elif doc_type == "project_plan":
                         response = "I've read the project plan from your Drive. You can now ask me questions about it."
                     elif doc_type == "meeting_invite":
-                        task = data.get("task", "this event")
+                        task = new_session["data"].get("task", "this event")
                         response = f"I see this is an invitation for '{task}' from your Drive. Would you like me to schedule it?"
                     else:
                         response = "I've finished reading your document from Drive. You can ask me to summarize it, or ask any specific questions you have."
@@ -636,6 +635,17 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, "Got it! I'm working on scheduling your reminders. This might take a moment...")
             scheduler.add_job(
                 func=process_and_schedule_reminders,
+                trigger='date',
+                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
+                args=[user_text, sender_number]
+            )
+            set_user_session(sender_number, None)
+            return
+        
+        if current_state == "awaiting_message_details":
+            send_message(sender_number, "Got it! I'm working on scheduling your message. This might take a moment...")
+            scheduler.add_job(
+                func=process_and_schedule_message,
                 trigger='date',
                 run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
                 args=[user_text, sender_number]
@@ -852,6 +862,10 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
         return
+    elif user_text == "9":
+        set_user_session(sender_number, "awaiting_message_details")
+        send_message(sender_number, "📝 What's the message you want to schedule, and who should it be sent to? (e.g., 'Remind Dhruvin to buy groceries tomorrow morning.')")
+        return
     elif user_text == "reminders_check":
         reminders = get_all_reminders(sender_number, scheduler)
         send_reminders_list(sender_number, reminders)
@@ -949,6 +963,16 @@ def process_natural_language_request(user_text, sender_number):
                 args=[sender_number, new_session]
             )
         return
+    
+    elif intent == "schedule_message":
+        send_message(sender_number, "I'm working on scheduling your message. This might take a moment...")
+        scheduler.add_job(
+            func=process_and_schedule_message,
+            trigger='date',
+            run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
+            args=[user_text, sender_number]
+        )
+        return
         
     elif intent == "drive_upload_file":
         set_user_session(sender_number, "awaiting_drive_upload_nlp")
@@ -982,7 +1006,7 @@ def process_natural_language_request(user_text, sender_number):
 
                 doc_type = new_session["doc_type"]
                 if doc_type == "resume":
-                    response_text = "I've analyzed the resume from your Drive. You can now ask me questions about it."
+                    response_text = "I've analyzed the resume from your Drive. You can ask me specific questions about it (e.g., 'what are the key skills?')."
                 else:
                     response_text = "I've finished reading your document from Drive. You can ask me to summarize it."
         else:
@@ -1020,7 +1044,8 @@ def process_natural_language_request(user_text, sender_number):
             "• *Expense Tracker*: Log your expenses to a live Google Sheet.\n\n"
             "📁 *File & Document Management*\n"
             "• *File Conversion*: Convert between PDF, Word, and Text.\n"
-            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
+            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n"
+            "• *Schedule a Message*: Schedule a message to send to a contact at a specific time.\n\n"
             "✨ *Hidden Commands*\n"
             "• `.reminders`: See a list of all your active reminders.\n"
             "• `.reconnect`: Refresh your Google account connection.\n\n"
@@ -1104,6 +1129,26 @@ def process_and_schedule_reminders(user_text, sender_number):
             send_message(sender_number, "I couldn't find any reminders to set in that message.")
     else:
         send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
+
+def process_and_schedule_message(user_text, sender_number):
+    intent_data = route_user_intent(user_text)
+    if intent_data.get("intent") == "schedule_message":
+        message_to_send = intent_data.get("entities", {})
+        contact_name = message_to_send.get("contact_name")
+        timestamp = message_to_send.get("timestamp")
+        message_text = message_to_send.get("message_text")
+
+        if not contact_name or not timestamp or not message_text:
+            send_message(sender_number, "❌ I couldn't find the contact, time, or message in your request. Please try again.")
+            return
+
+        # Placeholder for personal messaging logic
+        send_message(sender_number, f"✅ I'm trying to schedule a message for {contact_name} at {timestamp}.")
+        # This is where the new messaging library and QR code logic would go.
+        # send_qr_code(sender_number) if not is_linked(sender_number)
+        # schedule_personal_message(contact_name, message_text, timestamp)
+    else:
+        send_message(sender_number, "I didn't understand that as a message to schedule. Please try again.")
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
