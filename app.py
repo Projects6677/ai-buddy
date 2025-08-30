@@ -67,7 +67,6 @@ ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
 DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
-BAILEYS_API_URL = os.environ.get("BAILEYS_API_URL")
 
 
 # --- DATABASE & SCHEDULER ---
@@ -642,23 +641,6 @@ def handle_text_message(user_text, sender_number, session_data):
             )
             set_user_session(sender_number, None)
             return
-        
-        if current_state == "awaiting_message_details":
-            send_message(sender_number, "Got it! I'm working on scheduling your message. This might take a moment...")
-            scheduler.add_job(
-                func=process_and_schedule_message,
-                trigger='date',
-                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
-                args=[user_text, sender_number]
-            )
-            set_user_session(sender_number, None)
-            return
-        
-        if current_state == "awaiting_personal_whatsapp_link":
-            # This is the session state for the personal account linking flow
-            response_text = "⚠️ You must first link your personal WhatsApp account. Please scan the QR code I sent you."
-            send_message(sender_number, response_text)
-            return
 
         if current_state == "awaiting_document_question":
             if not is_document_followup_question(user_text):
@@ -817,7 +799,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 if new_body:
                     session_data["body"] = new_body
                     set_user_session(sender_number, session_data)
-                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_Ask for more changes, type *'attach'* for a file, or type *'send'*._")
+                    send_message(sender_number, f"Here is the updated draft:\n\n---\n{new_body}\n---\n\n_You can ask for more changes, type *'attach'* for a file, or type *'send'*._")
                 else:
                     send_message(sender_number, "Sorry, I couldn't apply that change.")
             return
@@ -869,36 +851,6 @@ def handle_text_message(user_text, sender_number, session_data):
         else:
             send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
         return
-    elif user_text == "9":
-        # Check if Baileys service is configured
-        if not BAILEYS_API_URL:
-            send_message(sender_number, "❌ The personal messaging service is not configured. This feature is disabled.")
-            return
-
-        # Request QR code from the external service
-        qr_url = f"{BAILEYS_API_URL}/qrcode"
-        try:
-            qr_response = requests.get(qr_url, timeout=10)
-            if qr_response.status_code == 200:
-                # Save the QR code image to a temporary file
-                qr_path = os.path.join("uploads", f"qr_{sender_number}.png")
-                with open(qr_path, "wb") as f:
-                    f.write(qr_response.content)
-
-                # Send the QR code image to the user
-                send_message(sender_number, "To schedule messages, you must first link your personal WhatsApp. Please scan this QR code with your phone.")
-                send_file_to_user(sender_number, qr_path, "image/png", "Scan this QR code to link your account.")
-                os.remove(qr_path) # Clean up the temporary file
-
-                # Set session state to wait for user to link account
-                set_user_session(sender_number, "awaiting_personal_whatsapp_link")
-                return
-            else:
-                send_message(sender_number, "❌ I'm sorry, I couldn't connect to the personal messaging service to get the QR code.")
-                return
-        except requests.exceptions.RequestException:
-            send_message(sender_number, "❌ I'm having trouble connecting to the personal messaging service. Please try again later.")
-            return
     elif user_text == "reminders_check":
         reminders = get_all_reminders(sender_number, scheduler)
         send_reminders_list(sender_number, reminders)
@@ -979,6 +931,7 @@ def process_natural_language_request(user_text, sender_number):
             if attendee_data and attendee_data.get("email"):
                 new_session["attendees_emails"].append(attendee_data["email"])
             else:
+                # Add to a separate list of attendees to prompt for emails
                 new_session["pending_attendees"].append(name)
         
         if new_session["pending_attendees"]:
@@ -995,47 +948,7 @@ def process_natural_language_request(user_text, sender_number):
                 run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
                 args=[sender_number, new_session]
             )
-        return
-    
-    elif intent == "schedule_message":
-        # First, check if the external service URL is configured
-        if not BAILEYS_API_URL:
-            send_message(sender_number, "❌ The personal messaging service is not configured. This feature is disabled.")
-            return
-
-        # Then, check if all required entities were found by the AI
-        contact_name = entities.get("contact_name")
-        timestamp = entities.get("timestamp")
-        message_text = entities.get("message_text")
-
-        if not contact_name or not timestamp or not message_text:
-            send_message(sender_number, "❌ I couldn't find the contact, time, or message in your request. Please try again.")
-            return
-
-        # Make the API call to your external Baileys service
-        send_message(sender_number, "✅ Got it! Scheduling your message now...")
-        
-        schedule_url = f"{BAILEYS_API_URL}/schedule"
-        payload = {
-            "contact_name": contact_name,
-            "message_text": message_text,
-            "timestamp": timestamp
-        }
-        
-        try:
-            response = requests.post(schedule_url, json=payload, timeout=20)
-            response.raise_for_status()
-            
-            result = response.json()
-            if result.get("status") == "success":
-                response_text = result.get("message", "Message scheduled successfully!")
-            else:
-                response_text = result.get("message", "An unknown error occurred while scheduling the message.")
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling Baileys service: {e}")
-            response_text = "❌ I'm sorry, I couldn't connect to the personal messaging service right now. Please try again later."
-        
-        send_message(sender_number, response_text)
+            set_user_session(sender_number, None)
         return
         
     elif intent == "drive_upload_file":
@@ -1108,8 +1021,7 @@ def process_natural_language_request(user_text, sender_number):
             "• *Expense Tracker*: Log your expenses to a live Google Sheet.\n\n"
             "📁 *File & Document Management*\n"
             "• *File Conversion*: Convert between PDF, Word, and Text.\n"
-            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n"
-            "• *Schedule a Message*: Schedule a message to send to a contact at a specific time.\n\n"
+            "• *Google Drive*: Upload, search, and analyze files in your Drive.\n\n"
             "✨ *Hidden Commands*\n"
             "• `.reminders`: See a list of all your active reminders.\n"
             "• `.reconnect`: Refresh your Google account connection.\n\n"
@@ -1193,46 +1105,6 @@ def process_and_schedule_reminders(user_text, sender_number):
             send_message(sender_number, "I couldn't find any reminders to set in that message.")
     else:
         send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
-
-def process_and_schedule_message(user_text, sender_number):
-    intent_data = route_user_intent(user_text)
-    if intent_data.get("intent") == "schedule_message":
-        message_to_send = intent_data.get("entities", {})
-        contact_name = message_to_send.get("contact_name")
-        timestamp = message_to_send.get("timestamp")
-        message_text = message_to_send.get("message_text")
-
-        if not contact_name or not timestamp or not message_text:
-            send_message(sender_number, "❌ I couldn't find the contact, time, or message in your request. Please try again.")
-            return
-
-        # Make the API call to your external Baileys service
-        send_message(sender_number, "✅ Got it! Scheduling your message now...")
-        
-        schedule_url = f"{BAILEYS_API_URL}/schedule"
-        payload = {
-            "contact_name": contact_name,
-            "message_text": message_text,
-            "timestamp": timestamp
-        }
-        
-        try:
-            response = requests.post(schedule_url, json=payload, timeout=20)
-            response.raise_for_status()
-            
-            result = response.json()
-            if result.get("status") == "success":
-                response_text = result.get("message", "Message scheduled successfully!")
-            else:
-                response_text = result.get("message", "An unknown error occurred while scheduling the message.")
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling Baileys service: {e}")
-            response_text = "❌ I'm sorry, I couldn't connect to the personal messaging service right now. Please try again later."
-        
-        send_message(sender_number, response_text)
-        return
-    else:
-        send_message(sender_number, "I didn't understand that as a message to schedule. Please try again.")
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
