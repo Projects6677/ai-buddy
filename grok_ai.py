@@ -134,11 +134,7 @@ def route_user_intent(text):
         - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
         - "entities": {{"filename": "The exact or partial filename to analyze."}}
 
-    12. "schedule_message":
-        - Triggered by requests to schedule or send a message to a contact later.
-        - "entities": {{"contact_name": "The name of the contact.", "timestamp": "The fully resolved date and time for the message in 'YYYY-MM-DD HH:MM:SS' format.", "message_text": "The content of the message."}}
-
-    13. "general_query":
+    12. "general_query":
         - This is the default intent for any other general question or command.
         - "entities": {{}}
 
