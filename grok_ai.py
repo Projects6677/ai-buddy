@@ -3,6 +3,9 @@ import requests
 import os
 import json
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
@@ -14,6 +17,29 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
+def _grok_api_call(model, messages, temperature=0.7, timeout=30, response_format=None):
+    """A helper function to centralize all Grok API calls."""
+    if not GROK_API_KEY:
+        return None
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature
+    }
+    if response_format:
+        payload["response_format"] = response_format
+        
+    try:
+        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP Error from Grok API: {e.response.text}")
+    except Exception as e:
+        logger.error(f"Grok API call error: {e}")
+    return None
+
 
 # --- UNIFIED DAILY BRIEFING GENERATOR ---
 def generate_full_daily_briefing(user_name, festival_name, quote, author, history_events, weather_data):
@@ -21,14 +47,6 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
     Uses a single, powerful AI call to generate all components of the daily briefing,
     including a culturally-aware greeting.
     """
-    if not GROK_API_KEY:
-        return {
-            "greeting": f"☀️ Good Morning, {user_name}!",
-            "quote_explanation": "Have a great day!",
-            "detailed_history": "No historical fact found for today.",
-            "detailed_weather": "Weather data is currently unavailable."
-        }
-
     history_texts = [event.get("text", "") for event in history_events]
     
     prompt = f"""
@@ -58,33 +76,27 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
 
     Return only the JSON object.
     """
+    
+    messages = [{"role": "user", "content": prompt}]
+    result_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.7, timeout=45, response_format={"type": "json_object"})
+    
+    if result_text:
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding error for daily briefing: {e}")
 
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7,
-        "response_format": {"type": "json_object"}
+    # Fallback to non-AI generated content if API call fails
+    return {
+        "greeting": f"☀️ Good Morning, {user_name}!",
+        "quote_explanation": f"The quote '{quote}' by {author} suggests that our actions shape our character just as we choose our actions.",
+        "detailed_history": history_events[0].get('text', "No historical fact found for today."),
+        "detailed_weather": f"The weather in Vijayawada is currently {weather_data.get('main', {}).get('temp', 'N/A')}°C with {weather_data.get('weather', [{}])[0].get('description', 'N/A')}."
     }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
-        response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        return json.loads(result_text)
-    except Exception as e:
-        print(f"Grok unified briefing error: {e}")
-        return {
-            "greeting": f"☀️ Good Morning, {user_name}!",
-            "quote_explanation": "Could not generate explanation.",
-            "detailed_history": "Could not generate historical fact.",
-            "detailed_weather": "Could not generate weather forecast."
-        }
 
 
 # --- PRIMARY INTENT ROUTER ---
 def route_user_intent(text):
-    if not GROK_API_KEY:
-        return {"intent": "general_query", "entities": {}}
-
     prompt = f"""
     You are an expert AI routing system for a WhatsApp assistant. Your job is to analyze the user's text and classify it into one of the predefined intents.
     You MUST respond with a JSON object containing two keys: "intent" and "entities".
@@ -144,28 +156,25 @@ def route_user_intent(text):
 
     Return only the JSON object.
     """
-    payload = {
-        "model": GROK_MODEL_SMART,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
-        "response_format": {"type": "json_object"}
-    }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
-        response.raise_for_status()
-        result_text = response.json()["choices"][0]["message"]["content"]
-        return json.loads(result_text)
-    except Exception as e:
-        print(f"Grok intent routing error: {e}")
-        return {"intent": "general_query", "entities": {}}
+    messages = [{"role": "user", "content": prompt}]
+    result_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.0, timeout=45, response_format={"type": "json_object"})
+    
+    if result_text:
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding error for intent router: {e}")
+
+    return {"intent": "general_query", "entities": {}}
+
 
 # --- NEW WEATHER SUMMARY FUNCTION ---
 def generate_weather_summary(weather_data, location):
     """
     Uses AI to create a conversational weather summary from raw API data.
     """
+    # Provide a basic fallback if AI is not available
     if not GROK_API_KEY:
-        # Provide a basic fallback if AI is not available
         temp = weather_data.get('main', {}).get('temp', 'N/A')
         condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
         return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
@@ -181,118 +190,87 @@ def generate_weather_summary(weather_data, location):
 
     Start with an emoji that matches the weather. Be conversational and give a helpful tip (e.g., "it's a good day for a walk," or "you might want to carry an umbrella").
     """
-
-    payload = {
-        "model": GROK_MODEL_FAST, # Fast model is perfect for this task
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7
-    }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        response.raise_for_status()
-        summary = response.json()["choices"][0]["message"]["content"].strip()
+    messages = [{"role": "user", "content": prompt}]
+    summary = _grok_api_call(GROK_MODEL_FAST, messages, temperature=0.7, timeout=20)
+    
+    if summary:
         return summary
-    except Exception as e:
-        print(f"Grok weather summary error: {e}")
-        return "⚠️ Sorry, I couldn't generate a detailed weather summary right now."
+    
+    temp = weather_data.get('main', {}).get('temp', 'N/A')
+    condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
+    return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
 
 
 # --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
-    if not GROK_API_KEY or not text or not text.strip(): return None
+    if not text or not text.strip(): return None
     prompt = f"""You are an expert document analysis AI. Read the following text and determine its type and extract key information. Your response MUST be a JSON object with two keys: "doc_type" and "data". Possible "doc_type" values are: "resume", "project_plan", "meeting_invite", "q_and_a", "generic_document". The "data" key should be an empty object `{{}}` unless it's a "meeting_invite", in which case it should be `{{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}`. The current date is {datetime.now().strftime('%Y-%m-%d %A')}. Here is the text to analyze: --- {text} --- Return only the JSON object."""
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "response_format": {"type": "json_object"} }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=45)
-        response.raise_for_status()
-        return json.loads(response.json()["choices"][0]["message"]["content"])
-    except Exception as e:
-        print(f"Grok document context analysis error: {e}")
-        return None
+    messages = [{"role": "user", "content": prompt}]
+    result_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.1, timeout=45, response_format={"type": "json_object"})
+    
+    if result_text:
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding error for document analysis: {e}")
+            
+    return None
 
 def get_contextual_ai_response(document_text, question):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured."
     prompt = f"""You are an AI assistant with a document's content loaded into your memory. A user is now asking a question about this document. Your task is to answer their question based *only* on the information provided in the document text. Here is the full text of the document: --- DOCUMENT START --- {document_text} --- DOCUMENT END --- Here is the user's question: "{question}". Provide a direct and helpful answer. If the answer cannot be found in the document, say "I couldn't find the answer to that in the document." """
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=60)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok contextual response error: {e}")
-        return "⚠️ Sorry, I had trouble answering that question."
+    messages = [{"role": "user", "content": prompt}]
+    response_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.3, timeout=60)
+    
+    return response_text.strip() if response_text else "⚠️ Sorry, I had trouble answering that question."
 
 def is_document_followup_question(text):
-    if not GROK_API_KEY: return True
     command_keywords = ["remind me", "hi", "hello", "hey", "menu", "what's the weather", "convert", "translate", "fix grammar", "my expenses", "send an email", ".dev", ".test", ".nuke", ".stats"]
     if any(keyword in text.lower() for keyword in command_keywords):
         return False
     prompt = f"""A user has previously uploaded a document and is in a follow-up conversation. Their new message is: "{text}". Is this message a question or command related to the document (e.g., "summarize it", "what are the key points?")? Or is it a completely new, unrelated command? Respond with only the word "yes" if it is a follow-up, or "no" if it is a new command."""
-    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "max_tokens": 5 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=10)
-        response.raise_for_status()
-        return "yes" in response.json()["choices"][0]["message"]["content"].strip().lower()
-    except Exception as e:
-        print(f"Grok context check error: {e}")
-        return True
+    messages = [{"role": "user", "content": prompt}]
+    response_text = _grok_api_call(GROK_MODEL_FAST, messages, temperature=0.0, timeout=10)
+    
+    return "yes" in response_text.strip().lower() if response_text else True
 
 def ai_reply(prompt):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7 }
-    try:
-        res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok AI error: {e}")
-        return "⚠️ Sorry, I couldn't connect to the AI service right now."
+    messages = [{"role": "user", "content": prompt}]
+    response_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.7, timeout=20)
+    
+    return response_text.strip() if response_text else "⚠️ Sorry, I couldn't connect to the AI service right now."
 
 def correct_grammar_with_grok(text):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
     system_prompt = "You are an expert grammar and spelling correction assistant. Correct the user's text. Only return the corrected text, without any explanation or preamble."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}], "temperature": 0.2 }
-    try:
-        res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=20)
-        res.raise_for_status()
-        corrected_text = res.json()["choices"][0]["message"]["content"].strip().strip('"')
-        return f"✅ Corrected:\n\n_{corrected_text}_"
-    except Exception as e:
-        print(f"Grok Grammar error: {e}")
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}]
+    corrected_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.2, timeout=20)
+    
+    if corrected_text:
+        return f"✅ Corrected:\n\n_{corrected_text.strip().strip('"')}_"
+    else:
         return "⚠️ Sorry, the grammar correction service is unavailable."
 
 def analyze_email_subject(subject):
-    if not GROK_API_KEY: return None
     prompt = f"""You are an email assistant. The user wants to write an email with the subject: "{subject}". What are the 2-3 most important follow-up questions you should ask to get the necessary details to write this email? Return your answer as a JSON object with a single key "questions" which is an array of strings. For a 'leave' subject, ask for dates and reason. For a 'meeting request' subject, ask for topic, date/time, and attendees. For a generic subject, just ask for the main point of the email. Only return the JSON object."""
-    payload = { "model": GROK_MODEL_FAST, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2, "response_format": {"type": "json_object"} }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=15)
-        response.raise_for_status()
-        return json.loads(response.json()["choices"][0]["message"]["content"]).get("questions")
-    except Exception as e:
-        print(f"Grok subject analysis error: {e}")
-        return None
+    messages = [{"role": "user", "content": prompt}]
+    result_text = _grok_api_call(GROK_MODEL_FAST, messages, temperature=0.2, timeout=15, response_format={"type": "json_object"})
+    
+    if result_text:
+        try:
+            return json.loads(result_text).get("questions")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding error for email subject analysis: {e}")
+    return None
 
 def write_email_body_with_grok(prompt):
-    if not GROK_API_KEY: return "❌ The Grok API key is not configured. This feature is disabled."
     system_prompt = "You are an expert email writing assistant. Based on the user's prompt, write a clear, professional, and well-formatted email body. Your entire response must consist *only* of the email body text. Do not include a subject line, greetings like 'Hello,', sign-offs like 'Sincerely,', or any preamble like 'Here is the email body:'."
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}], "temperature": 0.7 }
-    try:
-        res = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok email writing error: {e}")
-        return "❌ Sorry, I couldn't write the email body right now."
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    response_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.7, timeout=30)
+    
+    return response_text.strip() if response_text else "❌ Sorry, I couldn't write the email body right now."
 
 def edit_email_body(original_draft, edit_instruction):
-    if not GROK_API_KEY: return None
     prompt = f"""You are an email editor. Here is an email draft: --- DRAFT --- {original_draft} --- END DRAFT --- The user wants to make a change. Their instruction is: "{edit_instruction}". Apply the change and return only the complete, new version of the email body."""
-    payload = { "model": GROK_MODEL_SMART, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5 }
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=30)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Grok email editing error: {e}")
-        return None
+    messages = [{"role": "user", "content": prompt}]
+    response_text = _grok_api_call(GROK_MODEL_SMART, messages, temperature=0.5, timeout=30)
+    
+    return response_text.strip() if response_text else None
