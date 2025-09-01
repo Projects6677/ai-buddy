@@ -3,7 +3,6 @@
 from flask import Flask, request, redirect, session, url_for
 import requests
 import os
-import time
 from datetime import datetime, timedelta
 import json
 import re
@@ -25,6 +24,11 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import mimetypes
 from googleapiclient.discovery import build
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 from currency import convert_currency
@@ -70,10 +74,15 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
 
 
 # --- DATABASE & SCHEDULER ---
-client = MongoClient(MONGO_URI)
-db = client.ai_buddy_db
-users_collection = db.users
-jobs_collection = db.scheduled_jobs
+try:
+    client = MongoClient(MONGO_URI)
+    db = client.ai_buddy_db
+    users_collection = db.users
+    jobs_collection = db.scheduled_jobs
+    logger.info("Successfully connected to MongoDB.")
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {e}")
+    client = None
 
 jobstores = {
     'default': MongoDBJobStore(client=client, database="ai_buddy_db", collection="scheduled_jobs")
@@ -87,29 +96,36 @@ if not os.path.exists("uploads"):
 
 # === HELPER FUNCTIONS ===
 def get_user_from_db(sender_number):
+    if not client: return None
     return users_collection.find_one({"_id": sender_number})
 
 def create_or_update_user_in_db(sender_number, data):
+    if not client: return
     users_collection.update_one({"_id": sender_number}, {"$set": data}, upsert=True)
 
 def set_user_session(sender_number, session_data):
+    if not client: return
     if session_data is None:
         users_collection.update_one({"_id": sender_number}, {"$unset": {"session": ""}})
     else:
         users_collection.update_one({"_id": sender_number}, {"$set": {"session": session_data}}, upsert=True)
 
 def get_user_session(sender_number):
+    if not client: return None
     user_data = get_user_from_db(sender_number)
     return user_data.get("session") if user_data else None
 
 def get_all_users_from_db():
+    if not client: return []
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1, "location": 1})
 
 def delete_all_users_from_db():
+    if not client: return
     return users_collection.delete_many({})
 
 def delete_user_by_id(user_id):
     """Deletes a single user and their reminders by their phone number ID."""
+    if not client: return False, 0
     delete_result = users_collection.delete_one({"_id": user_id})
     
     jobs_deleted_count = 0
@@ -121,26 +137,33 @@ def delete_user_by_id(user_id):
     return delete_result.deleted_count > 0, jobs_deleted_count
 
 def delete_all_scheduled_jobs_from_db():
-    """Deletes all scheduled jobs from the database."""
+    if not client: return
     return jobs_collection.delete_many({})
 
 def count_users_in_db():
+    if not client: return 0
     return users_collection.count_documents({})
 
 def save_credentials_to_db(sender_number, credentials):
+    if not client: return
     pickled_creds = pickle.dumps(credentials)
     create_or_update_user_in_db(sender_number, {"google_credentials": pickled_creds, "is_google_connected": True})
 
 def get_credentials_from_db(sender_number):
+    if not client: return None
     user_data = get_user_from_db(sender_number)
     if not user_data or "google_credentials" not in user_data:
         return None
-    creds = pickle.loads(user_data["google_credentials"])
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        save_credentials_to_db(sender_number, creds)
-    if creds and creds.valid:
-        return creds
+    try:
+        creds = pickle.loads(user_data["google_credentials"])
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            save_credentials_to_db(sender_number, creds)
+        if creds and creds.valid:
+            return creds
+    except (pickle.UnpicklingError, TypeError) as e:
+        logger.error(f"Error unpickling credentials for {sender_number}: {e}")
+        return None
     return None
 
 def get_user_email_from_google(credentials):
@@ -150,7 +173,7 @@ def get_user_email_from_google(credentials):
         user_info = service.userinfo().get().execute()
         return user_info.get('email')
     except Exception as e:
-        print(f"Error fetching user email from Google: {e}")
+        logger.error(f"Error fetching user email from Google: {e}")
         return None
 
 def send_google_auth_link(sender_number):
@@ -165,7 +188,7 @@ def send_google_auth_link(sender_number):
             )
             send_message(sender_number, auth_message)
         except Exception as e:
-            print(f"Error generating Google Auth link: {e}")
+            logger.error(f"Error generating Google Auth link: {e}")
             send_message(sender_number, "Sorry, I couldn't generate a connection link right now.")
     else:
         send_message(sender_number, "Google connection is not configured on the server.")
@@ -258,13 +281,13 @@ def download_media_from_whatsapp(media_id, message_payload):
         return file_path, original_filename, media_info.get('mime_type')
         
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error downloading media: {e}")
+        logger.error(f"Error downloading media: {e}")
         return None, None, None
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("\n🚀 Received message:", json.dumps(data, indent=2))
+    logger.info(f"Received message: {json.dumps(data, indent=2)}")
     try:
         entry = data.get("entry", [])[0].get("changes", [])[0].get("value", {})
         if "messages" not in entry or not entry["messages"]: return "OK", 200
@@ -292,7 +315,7 @@ def webhook():
             send_message(sender_number, "🤔 Sorry, I can only process text, documents, and images at the moment.")
 
     except Exception as e:
-        print(f"❌ Unhandled Error: {e}")
+        logger.error(f"Unhandled Error: {e}")
     return "OK", 200
 
 # === MESSAGE HANDLERS ===
@@ -513,8 +536,8 @@ def handle_text_message(user_text, sender_number, session_data):
             if target == "all":
                 user_result = delete_all_users_from_db()
                 scheduler.remove_all_jobs()
-                user_count = user_result.deleted_count
-                send_message(sender_number, "💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
+                user_count = user_result.deleted_count if user_result else 0
+                send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
             else:
                 user_deleted, jobs_deleted = delete_user_by_id(target)
                 if user_deleted:
@@ -636,7 +659,7 @@ def handle_text_message(user_text, sender_number, session_data):
             scheduler.add_job(
                 func=process_and_schedule_reminders,
                 trigger='date',
-                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2),
+                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
                 args=[user_text, sender_number]
             )
             set_user_session(sender_number, None)
@@ -684,7 +707,6 @@ def handle_text_message(user_text, sender_number, session_data):
             create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False, "location": None})
             set_user_session(sender_number, "awaiting_location")
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
-            time.sleep(1)
             send_message(sender_number, "To provide you with accurate weather in your morning briefings, what city do you live in?")
             return
         
@@ -692,9 +714,7 @@ def handle_text_message(user_text, sender_number, session_data):
             create_or_update_user_in_db(sender_number, {"location": user_text.title()})
             set_user_session(sender_number, None)
             send_message(sender_number, f"✅ Great! I've set your location to *{user_text.title()}*.")
-            time.sleep(1)
             send_google_auth_link(sender_number)
-            time.sleep(2)
             send_welcome_message(sender_number, get_user_from_db(sender_number).get("name"))
             return
         
@@ -916,7 +936,7 @@ def process_natural_language_request(user_text, sender_number):
         topic = entities.get("topic", "Meeting")
         duration = entities.get("duration_minutes", 30)
         
-        session_id = str(int(time.time()))
+        session_id = str(int(datetime.now().timestamp()))
         new_session = {
             "state": "scheduling_meeting",
             "session_id": session_id,
@@ -1037,7 +1057,6 @@ def process_natural_language_request(user_text, sender_number):
                  task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
                  conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
                  send_message(sender_number, conf)
-                 time.sleep(1)
             return
         else:
             response_text = "Sorry, I couldn't find any reminders to set in your message."
@@ -1100,11 +1119,41 @@ def process_and_schedule_reminders(user_text, sender_number):
                 task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
                 send_message(sender_number, conf)
-                time.sleep(1)
         else:
             send_message(sender_number, "I couldn't find any reminders to set in that message.")
     else:
         send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
+
+def process_meeting_scheduling(sender_number, session_data):
+    creds_list = []
+    attendee_emails = session_data["attendees_emails"]
+    
+    for email in attendee_emails:
+        user = users_collection.find_one({"email": email})
+        if user:
+            creds = get_credentials_from_db(user['_id'])
+            if creds:
+                creds_list.append(creds)
+    
+    if not creds_list:
+        send_message(sender_number, "❌ Could not find credentials for any attendees. Please ensure they have connected their Google accounts.")
+        return
+        
+    organizer_creds = get_credentials_from_db(sender_number)
+    
+    start_search_dt = datetime.now(pytz.timezone('Asia/Kolkata'))
+    end_search_dt = start_search_dt + timedelta(days=7) # Search for a slot in the next 7 days
+    duration_minutes = session_data["duration_minutes"]
+
+    proposed_time = find_common_free_time(creds_list, duration_minutes, start_search_dt, end_search_dt)
+
+    if proposed_time:
+        send_meeting_proposal(sender_number, proposed_time, session_data["session_id"])
+        session_data["start_time"] = proposed_time.isoformat()
+        set_user_session(sender_number, session_data)
+    else:
+        send_message(sender_number, "😕 Sorry, I couldn't find a common free time slot for all attendees within the next week.")
+        set_user_session(sender_number, None)
 
 def send_welcome_message(to, name):
     send_interactive_menu(to, name)
@@ -1117,7 +1166,7 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
         data = {"messaging_product": "whatsapp"}
         upload_response = requests.post(url, headers=headers, files=files, data=data)
     if upload_response.status_code != 200:
-        print(f"Error uploading file: {upload_response.text}"); return
+        logger.error(f"Error uploading file: {upload_response.text}"); return
     media_id = upload_response.json().get("id")
     if not media_id: return
     message_url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
@@ -1128,13 +1177,13 @@ def convert_text_to_pdf(text):
     pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)
     pdf.multi_cell(0, 10, text.encode('latin-1', 'replace').decode('latin-1'))
-    filename = secure_filename(f"converted_{int(time.time())}.pdf")
+    filename = secure_filename(f"converted_{int(datetime.now().timestamp())}.pdf")
     file_path = os.path.join("uploads", filename)
     pdf.output(file_path); return file_path
 
 def convert_text_to_word(text):
     doc = Document(); doc.add_paragraph(text)
-    filename = secure_filename(f"converted_{int(time.time())}.docx")
+    filename = secure_filename(f"converted_{int(datetime.now().timestamp())}.docx")
     file_path = os.path.join("uploads", filename)
     doc.save(file_path); return file_path
 
@@ -1176,25 +1225,27 @@ def export_expenses_to_excel(sender_number, user_data):
     return file_path
 
 def send_daily_briefing():
-    print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
+    logger.info("--- Running Daily Briefing Job ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
-        print("No users found. Skipping job."); return
+        logger.info("No users found. Skipping job."); return
 
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     
-    print(f"Found {len(all_users)} user(s) to send briefing to.")
+    logger.info(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
         user_id, user_name, user_location = user["_id"], user.get("name", "there"), user.get("location", "Vijayawada")
         weather_data = get_raw_weather_data(city=user_location)
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-        greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-        quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!").replace('\n', ' ')
-        detailed_history = briefing_content.get("detailed_history", "No historical fact found.").replace('\n', ' ')
-        detailed_weather = briefing_content.get("detailed_weather", "Weather data unavailable.").replace('\n', ' ')
+        
+        # Use the generated content from the AI call
+        greeting = briefing_content.get("greeting")
+        quote_explanation = briefing_content.get("quote_explanation")
+        detailed_history = briefing_content.get("detailed_history")
+        detailed_weather = briefing_content.get("detailed_weather")
 
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
@@ -1206,11 +1257,10 @@ def send_daily_briefing():
             ]}
         ]
         send_template_message(user_id, "daily_briefing_v3", components)
-        time.sleep(1)
-    print("--- Daily Briefing Job Finished ---")
+    logger.info("--- Daily Briefing Job Finished ---")
 
 def send_test_briefing(developer_number):
-    print(f"--- Running Test Briefing for {developer_number} ---")
+    logger.info(f"--- Running Test Briefing for {developer_number} ---")
     user = get_user_from_db(developer_number)
     if not user:
         send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database."); return
@@ -1220,10 +1270,11 @@ def send_test_briefing(developer_number):
     weather_data = get_raw_weather_data(city=user_location)
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-    greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-    quote_explanation = briefing_content.get("quote_explanation", "Test explanation.").replace('\n', ' ')
-    detailed_history = briefing_content.get("detailed_history", "Test history.").replace('\n', ' ')
-    detailed_weather = briefing_content.get("detailed_weather", "Test weather.").replace('\n', ' ')
+    
+    greeting = briefing_content.get("greeting")
+    quote_explanation = briefing_content.get("quote_explanation")
+    detailed_history = briefing_content.get("detailed_history")
+    detailed_weather = briefing_content.get("detailed_weather")
 
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
@@ -1235,22 +1286,21 @@ def send_test_briefing(developer_number):
         ]}
     ]
     send_template_message(developer_number, "daily_briefing_v3", components)
-    print("--- Test Briefing Finished ---")
+    logger.info("--- Test Briefing Finished ---")
 
 def send_update_notification_to_all_users(feature_list):
     if not ADMIN_SECRET_KEY:
-        print("ADMIN_SECRET_KEY is not set. Cannot send notifications."); return
-    print("--- Sending update notifications to all users ---")
+        logger.warning("ADMIN_SECRET_KEY is not set. Cannot send notifications."); return
+    logger.info("--- Sending update notifications to all users ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
-        print("No users found, skipping notifications."); return
+        logger.info("No users found, skipping notifications."); return
 
     components = [{"type": "body", "parameters": [{"type": "text", "text": feature_list}]}]
-    print(f"Found {len(all_users)} user(s). Preparing to send update templates...")
+    logger.info(f"Found {len(all_users)} user(s). Preparing to send update templates...")
     for user in all_users:
         send_template_message(user["_id"], "bot_update_notification", components)
-        time.sleep(1)
-    print("--- Finished sending update notifications ---")
+    logger.info("--- Finished sending update notifications ---")
 
 if __name__ == '__main__':
     if not scheduler.get_job('daily_briefing_job'):
