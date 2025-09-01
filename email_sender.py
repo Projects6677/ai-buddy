@@ -4,6 +4,9 @@ import base64
 from email.message import EmailMessage
 import mimetypes
 from googleapiclient.discovery import build
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_message(sender, to, subject, body, attachment_paths=None):
     """Creates an email message object."""
@@ -33,10 +36,8 @@ def send_email(credentials, recipient_emails, subject, body, attachment_paths=No
     Sends an email using the user's Gmail account via the Gmail API.
     """
     try:
-        # From email_sender.py
         service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
         
-        # Get the user's own email address to use as the 'From' field
         user_email = service.users().getProfile(userId='me').execute().get('emailAddress')
         
         if not isinstance(recipient_emails, list):
@@ -47,7 +48,6 @@ def send_email(credentials, recipient_emails, subject, body, attachment_paths=No
         encoded_message = base64.urlsafe_b64encode(email_message.as_bytes()).decode()
         create_message_body = {'raw': encoded_message}
         
-        # Send the email
         service.users().messages().send(userId="me", body=create_message_body).execute()
         
         recipient_str = ", ".join(f"*{email}*" for email in recipient_emails)
@@ -57,5 +57,5 @@ def send_email(credentials, recipient_emails, subject, body, attachment_paths=No
         return confirmation_message
 
     except Exception as e:
-        print(f"Gmail API sending error: {e}")
+        logger.error(f"Gmail API sending error: {e}")
         return "❌ Sorry, I failed to send the email. Please ensure you have granted Gmail permissions."
