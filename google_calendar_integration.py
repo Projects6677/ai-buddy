@@ -4,9 +4,20 @@ import os
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from datetime import timedelta
+import json
 
 # --- CONFIGURATION ---
-CLIENT_SECRETS_FILE = 'client_secret.json'
+CLIENT_SECRETS_JSON = {
+    "web": {
+        "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
+        "project_id": os.environ.get("GOOGLE_PROJECT_ID"),
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
+        "redirect_uris": [os.environ.get("GOOGLE_REDIRECT_URI")]
+    }
+}
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/gmail.readonly',
@@ -14,17 +25,23 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/youtube.readonly',
-    'https://www.googleapis.com/auth/userinfo.email' # <-- ADD THIS SCOPE
+    'https://www.googleapis.com/auth/userinfo.email'
 ]
-REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https-your-app-url.com/google-auth/callback")
+REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://your-app-url.com/google-auth/callback")
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
     flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
+        CLIENT_SECRETS_JSON, # This is not a file, it's a dict.
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
+    # Correct way to instantiate from a dict
+    with open('temp_client_secret.json', 'w') as temp_file:
+        json.dump(CLIENT_SECRETS_JSON, temp_file)
+    flow = Flow.from_client_secrets_file('temp_client_secret.json', scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    os.remove('temp_client_secret.json')
+
     return flow
 
 def create_google_calendar_event(credentials, task, run_time):
