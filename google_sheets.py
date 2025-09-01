@@ -2,8 +2,11 @@
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import logging
 
-def _get_or_create_spreadsheet(drive_service, sheets_service, user_id):
+logger = logging.getLogger(__name__)
+
+def _get_or_create_spreadsheet(drive_service, sheets_service):
     """
     Checks if the 'AI Buddy Expenses' spreadsheet exists, creates it if not,
     and returns its ID and URL.
@@ -26,7 +29,6 @@ def _get_or_create_spreadsheet(drive_service, sheets_service, user_id):
                     'title': 'AI Buddy Expenses'
                 }
             }
-            # Use sheets_service here
             spreadsheet = sheets_service.spreadsheets().create(body=spreadsheet, fields='spreadsheetId,spreadsheetUrl').execute()
             spreadsheet_id = spreadsheet.get('spreadsheetId')
 
@@ -43,7 +45,10 @@ def _get_or_create_spreadsheet(drive_service, sheets_service, user_id):
             return spreadsheet_id, spreadsheet.get('spreadsheetUrl')
 
     except HttpError as error:
-        print(f"An error occurred while checking/creating the spreadsheet: {error}")
+        logger.error(f"An error occurred while checking/creating the spreadsheet: {error}")
+        return None, None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in _get_or_create_spreadsheet: {e}")
         return None, None
 
 def append_expense_to_sheet(credentials, user_id, expense_data):
@@ -63,8 +68,7 @@ def append_expense_to_sheet(credentials, user_id, expense_data):
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_service = build('sheets', 'v4', credentials=credentials)
 
-        # Pass both services to the helper function
-        spreadsheet_id, spreadsheet_url = _get_or_create_spreadsheet(drive_service, sheets_service, user_id)
+        spreadsheet_id, spreadsheet_url = _get_or_create_spreadsheet(drive_service, sheets_service)
 
         if not spreadsheet_id:
             return "❌ Could not find or create your expense sheet in Google Drive."
@@ -80,7 +84,6 @@ def append_expense_to_sheet(credentials, user_id, expense_data):
         
         body = {'values': [new_row]}
         
-        # Append the row to the sheet using sheets_service
         sheets_service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
             range='A1',
@@ -96,10 +99,10 @@ def append_expense_to_sheet(credentials, user_id, expense_data):
         return confirmation
 
     except HttpError as error:
-        print(f"An HTTP error occurred while appending to the sheet: {error}")
+        logger.error(f"An HTTP error occurred while appending to the sheet: {error}")
         return "❌ Failed to log expense to Google Sheets due to an API error."
     except Exception as e:
-        print(f"An unexpected error occurred during sheet append: {e}")
+        logger.error(f"An unexpected error occurred during sheet append: {e}")
         return "❌ An unexpected error occurred while logging your expense."
 
 def get_sheet_link(credentials, user_id):
@@ -108,7 +111,6 @@ def get_sheet_link(credentials, user_id):
     """
     try:
         drive_service = build('drive', 'v3', credentials=credentials)
-        # We don't need sheets_service just to find the file
         query = "mimeType='application/vnd.google-apps.spreadsheet' and name='AI Buddy Expenses' and trashed=false"
         response = drive_service.files().list(q=query, spaces='drive', fields='files(id, name, webViewLink)').execute()
         files = response.get('files', [])
@@ -119,5 +121,5 @@ def get_sheet_link(credentials, user_id):
         else:
             return "😕 I couldn't find your expense sheet. Try logging an expense first to create it."
     except Exception as e:
-        print(f"Error getting sheet link: {e}")
+        logger.error(f"Error getting sheet link: {e}")
         return "❌ An error occurred while trying to find your expense sheet."
