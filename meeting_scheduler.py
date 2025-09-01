@@ -2,15 +2,22 @@
 from googleapiclient.discovery import build
 from datetime import datetime, time, timedelta
 import pytz
+import logging
+from dateutil import parser as date_parser
+
+logger = logging.getLogger(__name__)
 
 def find_common_free_time(credentials_list, duration_minutes, start_search_dt, end_search_dt):
     """
     Finds a common free time slot for a list of users within a given window.
     """
+    if not credentials_list:
+        return None
+        
     try:
         service = build('calendar', 'v3', credentials=credentials_list[0])
         
-        attendees = [{'id': creds.get('email')} for creds in credentials_list]
+        attendees = [{'id': creds.email_address} for creds in credentials_list]
         
         time_min = start_search_dt.isoformat()
         time_max = end_search_dt.isoformat()
@@ -30,7 +37,7 @@ def find_common_free_time(credentials_list, duration_minutes, start_search_dt, e
         # Combine all busy intervals into one list
         all_busy_intervals = []
         for creds in credentials_list:
-            email = creds.get('email')
+            email = creds.email_address
             for interval in freebusy_result['calendars'][email]['busy']:
                 all_busy_intervals.append({
                     'start': date_parser.parse(interval['start']).astimezone(tz),
@@ -76,7 +83,7 @@ def find_common_free_time(credentials_list, duration_minutes, start_search_dt, e
         return None # No suitable slot found
 
     except Exception as e:
-        print(f"Error finding common free time: {e}")
+        logger.error(f"Error finding common free time: {e}")
         return None
 
 def create_meeting_event(organizer_creds, attendees_emails, start_time, end_time, topic):
@@ -131,5 +138,5 @@ def create_meeting_event(organizer_creds, attendees_emails, start_time, end_time
         return confirmation_message
 
     except Exception as e:
-        print(f"Google Calendar meeting creation error: {e}")
+        logger.error(f"Google Calendar meeting creation error: {e}")
         return "❌ Failed to create the Google Calendar event. Please ensure all attendees have valid email addresses."
