@@ -6,7 +6,6 @@ from datetime import datetime
 
 # --- Configuration ---
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
-# This is the corrected, verified URL for the Grok API
 GROK_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROK_MODEL_FAST = "llama3-8b-8192"
 GROK_MODEL_SMART = "llama3-70b-8192"
@@ -95,19 +94,19 @@ def route_user_intent(text):
     Here are the possible intents and the required entities for each:
 
     1. "schedule_meeting":
-       - Triggered by requests to schedule a meeting with other people.
-       - "entities": {{"topic": "The subject of the meeting", "attendees": ["list", "of", "names"], "duration_minutes": <number>}}
-       
+       - Triggered by requests to schedule a meeting, find a time, or set up a call with others.
+       - "entities": {{"attendees": ["list_of_names"], "topic": "meeting_subject", "duration_minutes": <number>, "timeframe_hint": "e.g., 'next week', 'tomorrow afternoon', 'this Friday'"}}
+
     2. "set_reminder":
-       - Triggered by requests to be reminded of something.
-       - "entities": An ARRAY of objects, each with {{"task": "The core task of the reminder, e.g., 'call John'", "timestamp": "The fully resolved date and time for the reminder in 'YYYY-MM-DD HH:MM:SS' format. You MUST resolve relative times like '8pm today' or 'tomorrow at 4pm' based on the current date.", "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"}}
+       - Triggered by requests to be reminded of something (for the user only).
+       - "entities": An ARRAY of objects, each with {{"task": "The core task of the reminder, e.g., 'call John'", "timestamp": "The fully resolved date and time for the reminder in 'YYYY-MM-DD HH:MM:SS' format.", "recurrence": "The recurrence rule if mentioned (e.g., 'every day'), otherwise null"}}
 
     3. "get_reminders":
        - Triggered by requests to see, check, show, or list all active reminders.
        - "entities": {{}}
 
     4. "log_expense":
-       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "The fully resolved date and time for the expense in 'YYYY-MM-DD HH:MM:SS' format. If a time is mentioned, use it. If no time or date is mentioned, use the current date and time."}}
+       - "entities": An array of objects, each with {{"cost": <number>, "item": "description", "place": "store_name_or_null", "timestamp": "YYYY-MM-DD HH:MM:SS format"}}
 
     5. "convert_currency":
        - "entities": An array of objects, each with {{"amount": <number>, "from_currency": "3-letter_code", "to_currency": "3-letter_code"}}
@@ -123,31 +122,19 @@ def route_user_intent(text):
        - Triggered by questions like "who are you?", "what are you?", "who made you?", or "who created you?".
        - "entities": {{}}
 
-    9. "export_expenses":
-       - Triggered by requests to export expenses to an Excel file.
-       - "entities": {{}}
-       
-    10. "get_expense_sheet":
-        - Triggered by requests to get a link to the Google Sheet for expenses.
-        - "entities": {{}}
+    9. "youtube_search":
+       - Triggered by requests to find, search for, or get a video from YouTube.
+       - "entities": {{"query": "The search term for the video."}}
 
-    11. "youtube_search":
-        - Triggered by requests to find, search for, or get a video from YouTube.
-        - "entities": {{"query": "The search term for the video."}}
-
-    12. "drive_search_file":
+    10. "drive_search_file":
         - Triggered by requests to find or search for a file in Google Drive.
         - "entities": {{"query": "The name or keyword of the file to search for."}}
 
-    13. "drive_analyze_file":
+    11. "drive_analyze_file":
         - Triggered by requests to summarize, analyze, or ask questions about a specific file in Google Drive.
         - "entities": {{"filename": "The exact or partial filename to analyze."}}
 
-    14. "drive_upload_file":
-        - Triggered by requests to save or upload the *next* file to Google Drive. This is used when the user *has not* sent the file yet but is indicating they want to.
-        - "entities": {{}}
-
-    15. "general_query":
+    12. "general_query":
         - This is the default intent for any other general question or command.
         - "entities": {{}}
 
@@ -172,12 +159,13 @@ def route_user_intent(text):
         print(f"Grok intent routing error: {e}")
         return {"intent": "general_query", "entities": {}}
 
-
+# --- NEW WEATHER SUMMARY FUNCTION ---
 def generate_weather_summary(weather_data, location):
     """
     Uses AI to create a conversational weather summary from raw API data.
     """
     if not GROK_API_KEY:
+        # Provide a basic fallback if AI is not available
         temp = weather_data.get('main', {}).get('temp', 'N/A')
         condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
         return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
@@ -195,7 +183,7 @@ def generate_weather_summary(weather_data, location):
     """
 
     payload = {
-        "model": GROK_MODEL_FAST,
+        "model": GROK_MODEL_FAST, # Fast model is perfect for this task
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
@@ -209,6 +197,7 @@ def generate_weather_summary(weather_data, location):
         return "⚠️ Sorry, I couldn't generate a detailed weather summary right now."
 
 
+# --- OTHER AI FUNCTIONS ---
 def analyze_document_context(text):
     if not GROK_API_KEY or not text or not text.strip(): return None
     prompt = f"""You are an expert document analysis AI. Read the following text and determine its type and extract key information. Your response MUST be a JSON object with two keys: "doc_type" and "data". Possible "doc_type" values are: "resume", "project_plan", "meeting_invite", "q_and_a", "generic_document". The "data" key should be an empty object `{{}}` unless it's a "meeting_invite", in which case it should be `{{"task": "description of event", "timestamp": "YYYY-MM-DD HH:MM:SS"}}`. The current date is {datetime.now().strftime('%Y-%m-%d %A')}. Here is the text to analyze: --- {text} --- Return only the JSON object."""
