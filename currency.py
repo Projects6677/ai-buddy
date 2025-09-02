@@ -62,5 +62,5 @@ def convert_currency(amount_str, from_currency, to_currency):
         print(f"Data parsing error in currency conversion: {e}")
         return "❌ I couldn't understand that. Please use the format: `<amount> <from_currency> to <to_currency>`."
     except Exception as e:
-        print(f"Currency conversion error: {e}")
+        print(f"❌ An unexpected error occurred: {e}")
         return "❌ An unexpected error occurred."
