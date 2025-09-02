@@ -1190,7 +1190,7 @@ def send_daily_briefing():
         user_id, user_name, user_location = user["_id"], user.get("name", "there"), user.get("location", "Vijayawada")
         weather_data = get_raw_weather_data(city=user_location)
         
-        briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data, user_location)
+        briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
         quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!").replace('\n', ' ')
         detailed_history = briefing_content.get("detailed_history", "No historical fact found.").replace('\n', ' ')
@@ -1219,7 +1219,7 @@ def send_test_briefing(developer_number):
     user_name, user_location = user.get("name", "Developer"), user.get("location", "Vijayawada")
     weather_data = get_raw_weather_data(city=user_location)
 
-    briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data, user_location)
+    briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
     quote_explanation = briefing_content.get("quote_explanation", "Test explanation.").replace('\n', ' ')
     detailed_history = briefing_content.get("detailed_history", "Test history.").replace('\n', ' ')
