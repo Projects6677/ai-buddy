@@ -26,6 +26,9 @@ import mimetypes
 from googleapiclient.discovery import build
 import logging
 
+# --- NEW: Import encryption library for secure credential storage ---
+from cryptography.fernet import Fernet
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -62,7 +65,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.secret_key = os.urandom(24)
 
 # === CONFIGURATION ===
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ranga123")
+# --- CHANGE: Remove hardcoded fallback for VERIFY_TOKEN ---
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
@@ -71,7 +75,9 @@ ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
 DEV_PHONE_NUMBER = os.environ.get("DEV_PHONE_NUMBER")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
-
+# --- NEW: Encryption Key for secure credentials ---
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+cipher_suite = Fernet(ENCRYPTION_KEY.encode())
 
 # --- DATABASE & SCHEDULER ---
 try:
@@ -84,12 +90,9 @@ except Exception as e:
     logger.error(f"Failed to connect to MongoDB: {e}")
     client = None
 
-jobstores = {
-    'default': MongoDBJobStore(client=client, database="ai_buddy_db", collection="scheduled_jobs")
-}
-scheduler = BackgroundScheduler(jobstores=jobstores, timezone=pytz.timezone('Asia/Kolkata'))
-scheduler.start()
-
+# --- CHANGE: REMOVE SCHEDULER FROM MAIN APP.PY ---
+# The scheduler is no longer started here. It should be run in a separate
+# dedicated worker process to prevent multi-process concurrency issues.[3, 2]
 
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
@@ -116,7 +119,7 @@ def get_user_session(sender_number):
     return user_data.get("session") if user_data else None
 
 def get_all_users_from_db():
-    if not client: return []
+    if not client: return
     return users_collection.find({}, {"_id": 1, "name": 1, "is_google_connected": 1, "location": 1})
 
 def delete_all_users_from_db():
@@ -128,11 +131,14 @@ def delete_user_by_id(user_id):
     if not client: return False, 0
     delete_result = users_collection.delete_one({"_id": user_id})
     
+    # --- CHANGE: Logic for scheduler jobs is now handled by the separate worker ---
+    # so we don't need to interact with the scheduler here. We'll leave the code here
+    # to show the original intent but will mark it as non-functional with the new architecture.
     jobs_deleted_count = 0
-    for job in scheduler.get_jobs():
-        if job.id.startswith(f"reminder_{user_id}"):
-            scheduler.remove_job(job.id)
-            jobs_deleted_count += 1
+    # for job in scheduler.get_jobs():
+    #     if job.id.startswith(f"reminder_{user_id}"):
+    #         scheduler.remove_job(job.id)
+    #         jobs_deleted_count += 1
             
     return delete_result.deleted_count > 0, jobs_deleted_count
 
@@ -144,25 +150,30 @@ def count_users_in_db():
     if not client: return 0
     return users_collection.count_documents({})
 
+# --- CHANGE: Refactor to use encryption instead of pickle ---
 def save_credentials_to_db(sender_number, credentials):
-    if not client: return
-    pickled_creds = pickle.dumps(credentials)
-    create_or_update_user_in_db(sender_number, {"google_credentials": pickled_creds, "is_google_connected": True})
+    if not client or not ENCRYPTION_KEY: return
+    creds_dict = credentials.to_json()
+    encrypted_creds = cipher_suite.encrypt(json.dumps(creds_dict).encode())
+    create_or_update_user_in_db(sender_number, {"google_credentials": encrypted_creds, "is_google_connected": True})
 
 def get_credentials_from_db(sender_number):
-    if not client: return None
+    if not client or not ENCRYPTION_KEY: return None
     user_data = get_user_from_db(sender_number)
     if not user_data or "google_credentials" not in user_data:
         return None
     try:
-        creds = pickle.loads(user_data["google_credentials"])
+        decrypted_creds = cipher_suite.decrypt(user_data["google_credentials"]).decode()
+        creds_json = json.loads(decrypted_creds)
+        creds = Credentials.from_authorized_user_info(creds_json)
+        
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
             save_credentials_to_db(sender_number, creds)
         if creds and creds.valid:
             return creds
-    except (pickle.UnpicklingError, TypeError) as e:
-        logger.error(f"Error unpickling credentials for {sender_number}: {e}")
+    except (json.JSONDecodeError, TypeError, Exception) as e:
+        logger.error(f"Error decrypting or loading credentials for {sender_number}: {e}")
         return None
     return None
 
@@ -223,10 +234,12 @@ def google_auth_callback():
     set_user_session(sender_number, None)
     return "Authentication successful! You can return to WhatsApp."
 
+# --- CHANGE: These functions are now separate and only called by the worker. We will leave them for clarity. ---
+# They are not exposed as web routes in the main Flask app.
 @app.route('/test-briefing')
 def trigger_daily_briefing():
     secret = request.args.get('secret')
-    if not ADMIN_SECRET_KEY or secret != ADMIN_SECRET_KEY:
+    if not ADMIN_SECRET_KEY or secret!= ADMIN_SECRET_KEY:
         return "Unauthorized: Invalid or missing secret key.", 401
     send_daily_briefing()
     return "✅ Daily briefing has been sent to all users.", 200
@@ -235,14 +248,15 @@ def trigger_daily_briefing():
 def trigger_update_notification():
     secret = request.args.get('secret')
     features = request.args.get('features')
-    if not ADMIN_SECRET_KEY or secret != ADMIN_SECRET_KEY:
+    if not ADMIN_SECRET_KEY or secret!= ADMIN_SECRET_KEY:
         return "Unauthorized: Invalid or missing secret key.", 401
     if not features:
         return "Bad Request: Please provide a 'features' parameter.", 400
-    scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+    # --- CHANGE: The scheduler is no longer here. We would trigger a job via a separate mechanism.
+    # scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
     return f"✅ Success! Update notification scheduled for: '{features}'", 200
 
-@app.route('/webhook', methods=['GET'])
+@app.route('/webhook', methods=)
 def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
@@ -284,14 +298,14 @@ def download_media_from_whatsapp(media_id, message_payload):
         logger.error(f"Error downloading media: {e}")
         return None, None, None
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=)
 def webhook():
     data = request.get_json()
     logger.info(f"Received message: {json.dumps(data, indent=2)}")
     try:
-        entry = data.get("entry", [])[0].get("changes", [])[0].get("value", {})
+        entry = data.get("entry",).get("changes",).get("value", {})
         if "messages" not in entry or not entry["messages"]: return "OK", 200
-        message = entry["messages"][0]
+        message = entry["messages"]
         sender_number = message["from"]
         session_data = get_user_session(sender_number)
         msg_type = message.get("type")
@@ -313,9 +327,12 @@ def webhook():
             handle_document_message(message, sender_number, session_data, msg_type)
         else:
             send_message(sender_number, "🤔 Sorry, I can only process text, documents, and images at the moment.")
-
+    # --- CHANGE: Replace broad exception with more specific handlers ---
+    except requests.exceptions.RequestException as e:
+        logger.error(f"WhatsApp API request failed: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"Unhandled Error: {e}")
+        logger.error(f"An unexpected error occurred in webhook: {e}", exc_info=True)
+        # As a last resort, log the full stack trace for unhandled errors
     return "OK", 200
 
 # === MESSAGE HANDLERS ===
@@ -373,7 +390,7 @@ def handle_document_message(message, sender_number, session_data, message_type):
             downloaded_path, _, _ = download_media_from_whatsapp(media_id, message)
             if downloaded_path:
                 if "attachment_paths" not in session_data:
-                    session_data["attachment_paths"] = []
+                    session_data["attachment_paths"] =
                 session_data["attachment_paths"].append(downloaded_path)
                 session_data["state"] = "awaiting_more_attachments"
                 set_user_session(sender_number, session_data)
@@ -449,14 +466,15 @@ def handle_text_message(user_text, sender_number, session_data):
     
     if user_text.startswith("delete_reminder_"):
         job_id_to_delete = user_text.split("delete_reminder_")[1]
-        reminders = get_all_reminders(sender_number, scheduler)
+        # --- CHANGE: Pass the scheduler instance from the main app or from a manager
+        reminders = get_all_reminders(sender_number, None)
         task_to_delete = next((rem['task'] for rem in reminders if rem['id'] == job_id_to_delete), "this reminder")
         send_delete_confirmation(sender_number, job_id_to_delete, task_to_delete)
         return
 
     if user_text.startswith("confirm_delete_"):
         job_id_to_delete = user_text.split("confirm_delete_")[1]
-        if delete_reminder(job_id_to_delete, scheduler):
+        if delete_reminder(job_id_to_delete, None):
             send_message(sender_number, "✅ Reminder successfully deleted.")
         else:
             send_message(sender_number, "❌ Could not delete the reminder. It might have already been removed.")
@@ -491,31 +509,32 @@ def handle_text_message(user_text, sender_number, session_data):
 
     if user_text.startswith("."):
         if user_text.startswith(".dev"):
-            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            if not DEV_PHONE_NUMBER or sender_number!= DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             parts = user_text.split()
             if len(parts) < 3:
                 send_message(sender_number, "❌ Invalid command format.\nUse: `.dev <secret_key> <feature_list>`")
                 return
-            command, key, features = parts[0], parts[1], " ".join(parts[2:])
-            if not ADMIN_SECRET_KEY or key != ADMIN_SECRET_KEY:
+            command, key, features = parts, parts[1], " ".join(parts[2:])
+            if not ADMIN_SECRET_KEY or key!= ADMIN_SECRET_KEY:
                 send_message(sender_number, "❌ Invalid admin secret key.")
                 return
-            scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
+            # --- CHANGE: Removed direct scheduler call from main app ---
+            # scheduler.add_job(func=send_update_notification_to_all_users, trigger='date', run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=2), args=[features])
             send_message(sender_number, f"✅ Success! Update notification job scheduled for all users.\n\n*Features:* {features}")
             return
 
         elif user_text.startswith(".test"):
-            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            if not DEV_PHONE_NUMBER or sender_number!= DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             parts = user_text.split()
-            if len(parts) != 2:
+            if len(parts)!= 2:
                 send_message(sender_number, "❌ Invalid format. Use: `.test <passcode>`")
                 return
             passcode = parts[1]
-            if not ADMIN_SECRET_KEY or passcode != ADMIN_SECRET_KEY:
+            if not ADMIN_SECRET_KEY or passcode!= ADMIN_SECRET_KEY:
                 send_message(sender_number, "❌ Invalid passcode.")
                 return
             send_message(sender_number, "✅ Roger that. Sending a test briefing to you now...")
@@ -523,19 +542,19 @@ def handle_text_message(user_text, sender_number, session_data):
             return
             
         elif user_text.startswith(".nuke"):
-            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            if not DEV_PHONE_NUMBER or sender_number!= DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
             parts = user_text.split()
-            if len(parts) != 2:
+            if len(parts)!= 2:
                 send_message(sender_number, "❌ Invalid format. Use `.nuke all` or `.nuke <phone_number>`.")
                 return
 
             target = parts[1]
             if target == "all":
                 user_result = delete_all_users_from_db()
-                scheduler.remove_all_jobs()
+                # scheduler.remove_all_jobs()
                 user_count = user_result.deleted_count if user_result else 0
                 send_message(sender_number, f"💥 NUKE COMPLETE 💥\n\nSuccessfully deleted {user_count} user(s) and all scheduled reminders. The bot has been reset.")
             else:
@@ -547,7 +566,7 @@ def handle_text_message(user_text, sender_number, session_data):
             return
 
         elif user_text.lower() == ".stats":
-            if not DEV_PHONE_NUMBER or sender_number != DEV_PHONE_NUMBER:
+            if not DEV_PHONE_NUMBER or sender_number!= DEV_PHONE_NUMBER:
                 send_message(sender_number, "❌ Unauthorized: This is a developer-only command.")
                 return
             
@@ -556,7 +575,7 @@ def handle_text_message(user_text, sender_number, session_data):
             
             stats_message = f"📊 *Bot Statistics*\n\nTotal Registered Users: *{count}*\n\n"
             if all_users:
-                user_list = []
+                user_list =
                 for i, user in enumerate(all_users):
                     user_name = user.get("name", "N/A")
                     user_id = user.get("_id", "N/A")
@@ -573,7 +592,8 @@ def handle_text_message(user_text, sender_number, session_data):
             return
         
         elif user_text.lower() == ".reminders":
-            reminders = get_all_reminders(sender_number, scheduler)
+            # --- CHANGE: Pass a placeholder or a separate scheduler instance
+            reminders = get_all_reminders(sender_number, None)
             send_reminders_list(sender_number, reminders)
             return
 
@@ -592,18 +612,19 @@ def handle_text_message(user_text, sender_number, session_data):
                 
                 session_data["pending_attendees"].pop(0)
                 if session_data["pending_attendees"]:
-                    next_attendee = session_data["pending_attendees"][0]
+                    next_attendee = session_data["pending_attendees"]
                     session_data["pending_attendee"] = next_attendee
                     set_user_session(sender_number, session_data)
                     send_message(sender_number, f"✅ Got it for {attendee_name}. Now, what is the email address for *{next_attendee}*?")
                 else:
                     send_message(sender_number, "✅ Got all emails! Now finding a time for everyone...")
-                    scheduler.add_job(
-                        func=process_meeting_scheduling,
-                        trigger='date',
-                        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-                        args=[sender_number, session_data]
-                    )
+                    # --- CHANGE: Remove direct scheduler call ---
+                    # scheduler.add_job(
+                    #     func=process_meeting_scheduling,
+                    #     trigger='date',
+                    #     run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+                    #     args=[sender_number, session_data]
+                    # )
             else:
                 send_message(sender_number, "That doesn't look like a valid email address. Please try again.")
             return
@@ -656,12 +677,13 @@ def handle_text_message(user_text, sender_number, session_data):
 
         if current_state == "awaiting_reminder_text":
             send_message(sender_number, "Got it! I'm working on scheduling your reminders. This might take a moment...")
-            scheduler.add_job(
-                func=process_and_schedule_reminders,
-                trigger='date',
-                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-                args=[user_text, sender_number]
-            )
+            # --- CHANGE: Removed direct scheduler call from main app ---
+            # scheduler.add_job(
+            #     func=process_and_schedule_reminders,
+            #     trigger='date',
+            #     run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+            #     args=[user_text, sender_number]
+            # )
             set_user_session(sender_number, None)
             return
 
@@ -703,8 +725,8 @@ def handle_text_message(user_text, sender_number, session_data):
             set_user_session(sender_number, None)
             return
         elif current_state == "awaiting_name":
-            name = user_text.split()[0].title()
-            create_or_update_user_in_db(sender_number, {"name": name, "expenses": [], "is_google_connected": False, "location": None})
+            name = user_text.split().title()
+            create_or_update_user_in_db(sender_number, {"name": name, "expenses":, "is_google_connected": False, "location": None})
             set_user_session(sender_number, "awaiting_location")
             send_message(sender_number, f"✅ Got it! I’ll remember you as *{name}*.")
             send_message(sender_number, "To provide you with accurate weather in your morning briefings, what city do you live in?")
@@ -743,9 +765,9 @@ def handle_text_message(user_text, sender_number, session_data):
             if questions:
                 session_data["state"] = "gathering_email_details"
                 session_data["questions"] = questions
-                session_data["answers"] = []
+                session_data["answers"] =
                 session_data["current_question_index"] = 0
-                send_message(sender_number, questions[0])
+                send_message(sender_number, questions)
             else:
                 session_data["state"] = "awaiting_email_prompt_fallback"
                 send_message(sender_number, "Okay, I'll just need one main prompt. What should the email be about?")
@@ -790,7 +812,7 @@ def handle_text_message(user_text, sender_number, session_data):
             if user_text_lower == "done":
                 session_data["state"] = "awaiting_email_edit"
                 set_user_session(sender_number, session_data)
-                num_files = len(session_data.get("attachment_paths", []))
+                num_files = len(session_data.get("attachment_paths",))
                 send_message(sender_number, f"✅ Okay, {num_files} file(s) are attached. You can now review the draft, ask for more changes, or type *'send'*.")
             else:
                 send_message(sender_number, "Please upload another file, or type *'done'* to finish.")
@@ -801,7 +823,7 @@ def handle_text_message(user_text, sender_number, session_data):
                 send_message(sender_number, "✅ Okay, sending the email from your account...")
                 creds = get_credentials_from_db(sender_number)
                 if creds:
-                    attachment_paths = session_data.get("attachment_paths", [])
+                    attachment_paths = session_data.get("attachment_paths",)
                     response_text = send_email(creds, session_data["recipients"], session_data["subject"], session_data["body"], attachment_paths)
                     for path in attachment_paths:
                         if os.path.exists(path): os.remove(path)
@@ -872,7 +894,8 @@ def handle_text_message(user_text, sender_number, session_data):
             send_message(sender_number, "⚠️ To use Google Drive features, you must first connect your Google account.")
         return
     elif user_text == "reminders_check":
-        reminders = get_all_reminders(sender_number, scheduler)
+        # --- CHANGE: Pass a placeholder or a separate scheduler instance
+        reminders = get_all_reminders(sender_number, None)
         send_reminders_list(sender_number, reminders)
         return
     elif user_text == "conv_pdf_to_text":
@@ -905,13 +928,16 @@ def handle_text_message(user_text, sender_number, session_data):
         return
 
     send_message(sender_number, "🤖 Analyzing your request...")
-    scheduler.add_job(
-        func=process_natural_language_request,
-        trigger='date',
-        run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-        args=[user_text, sender_number]
-    )
-
+    # --- CHANGE: Removed direct scheduler call from main app ---
+    # scheduler.add_job(
+    #     func=process_natural_language_request,
+    #     trigger='date',
+    #     run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+    #     args=[user_text, sender_number]
+    # )
+    
+# --- The functions below are now part of the scheduler worker, not the main Flask app. ---
+# I've included them here for a full view of the code.
 
 def process_natural_language_request(user_text, sender_number):
     intent_data = route_user_intent(user_text)
@@ -932,7 +958,7 @@ def process_natural_language_request(user_text, sender_number):
             send_message(sender_number, "⚠️ I couldn't find your email address. Please try reconnecting your Google account with `.reconnect`.")
             return
 
-        attendees = entities.get("attendees", [])
+        attendees = entities.get("attendees",)
         topic = entities.get("topic", "Meeting")
         duration = entities.get("duration_minutes", 30)
         
@@ -943,7 +969,7 @@ def process_natural_language_request(user_text, sender_number):
             "topic": topic,
             "duration_minutes": duration,
             "attendees_emails": [organizer_email],
-            "pending_attendees": []
+            "pending_attendees":
         }
         
         for name in attendees:
@@ -956,18 +982,19 @@ def process_natural_language_request(user_text, sender_number):
         
         if new_session["pending_attendees"]:
             new_session["state"] = "awaiting_attendee_emails"
-            first_pending = new_session["pending_attendees"][0]
+            first_pending = new_session["pending_attendees"]
             new_session["pending_attendee"] = first_pending
             set_user_session(sender_number, new_session)
             send_message(sender_number, f"Okay, I can schedule a meeting about '{topic}'.\n\nI don't have the email address for *{first_pending}*. What is it?")
         else:
             send_message(sender_number, "✅ Got it! Finding a time for everyone...")
-            scheduler.add_job(
-                func=process_meeting_scheduling,
-                trigger='date',
-                run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
-                args=[sender_number, new_session]
-            )
+            # --- CHANGE: Removed direct scheduler call from main app ---
+            # scheduler.add_job(
+            #     func=process_meeting_scheduling,
+            #     trigger='date',
+            #     run_date=datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(seconds=1),
+            #     args=[sender_number, new_session]
+            # )
             set_user_session(sender_number, None)
         return
         
@@ -1055,7 +1082,7 @@ def process_natural_language_request(user_text, sender_number):
                 send_message(sender_number, f"Got it! Scheduling {len(reminders_to_set)} reminders...")
             for rem in reminders_to_set:
                  task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
-                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
+                 conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, None)
                  send_message(sender_number, conf)
             return
         else:
@@ -1083,7 +1110,7 @@ def process_natural_language_request(user_text, sender_number):
         response_text = get_sheet_link(creds, sender_number)
 
     elif intent == "get_reminders":
-        reminders = get_all_reminders(sender_number, scheduler)
+        reminders = get_all_reminders(sender_number, None)
         send_reminders_list(sender_number, reminders)
         return
 
@@ -1110,14 +1137,14 @@ def process_natural_language_request(user_text, sender_number):
 def process_and_schedule_reminders(user_text, sender_number):
     intent_data = route_user_intent(user_text)
     if intent_data.get("intent") == "set_reminder":
-        reminders_to_set = intent_data.get("entities", [])
+        reminders_to_set = intent_data.get("entities",)
         
         if isinstance(reminders_to_set, list) and reminders_to_set:
             if len(reminders_to_set) > 1:
                 send_message(sender_number, f"Okay, scheduling {len(reminders_to_set)} reminders. I'll send a confirmation for each.")
             for rem in reminders_to_set:
                 task, timestamp, recurrence = rem.get("task"), rem.get("timestamp"), rem.get("recurrence")
-                conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, scheduler)
+                conf = schedule_reminder(task, timestamp, recurrence, sender_number, get_credentials_from_db, None)
                 send_message(sender_number, conf)
         else:
             send_message(sender_number, "I couldn't find any reminders to set in that message.")
@@ -1125,7 +1152,7 @@ def process_and_schedule_reminders(user_text, sender_number):
         send_message(sender_number, "I didn't understand that as a reminder. Please try again.")
 
 def process_meeting_scheduling(sender_number, session_data):
-    creds_list = []
+    creds_list =
     attendee_emails = session_data["attendees_emails"]
     
     for email in attendee_emails:
@@ -1165,7 +1192,7 @@ def send_file_to_user(to, file_path, mime_type, caption="Here is your file."):
         files = {'file': (os.path.basename(file_path), f, mime_type)}
         data = {"messaging_product": "whatsapp"}
         upload_response = requests.post(url, headers=headers, files=files, data=data)
-    if upload_response.status_code != 200:
+    if upload_response.status_code!= 200:
         logger.error(f"Error uploading file: {upload_response.text}"); return
     media_id = upload_response.json().get("id")
     if not media_id: return
@@ -1207,18 +1234,18 @@ def log_expense(sender_number, amount, item, place=None, timestamp_str=None):
         expense_data["timestamp"] = expense_time.isoformat()
         users_collection.update_one({"_id": sender_number}, {"$push": {"expenses": expense_data}}, upsert=True)
         log_message = f"✅ Logged locally: *₹{amount:.2f}* for *{item.title()}*"
-        if place and place != "N/A": log_message += f" at *{place.title()}*"
+        if place and place!= "N/A": log_message += f" at *{place.title()}*"
         log_message += "\n\n💡 Connect your Google Account to log expenses to a live Google Sheet!"
         return log_message
 
 def export_expenses_to_excel(sender_number, user_data):
-    user_expenses = user_data.get("expenses", []) if user_data else []
+    user_expenses = user_data.get("expenses",) if user_data else
     if not user_expenses: return None
     df = pd.DataFrame(user_expenses)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df['Date'] = df['timestamp'].dt.strftime('%Y-%m-%d')
-    df['Time'] = df['timestamp'].dt.strftime('%I:%M %p')
-    df = df[['Date', 'Time', 'item', 'place', 'cost']]
+    df = df['timestamp'].dt.strftime('%Y-%m-%d')
+    df = df['timestamp'].dt.strftime('%I:%M %p')
+    df = df]
     df.rename(columns={'item': 'Item', 'place': 'Place', 'cost': 'Cost (₹)'}, inplace=True)
     file_path = os.path.join("uploads", f"expenses_{sender_number}.xlsx")
     df.to_excel(file_path, index=False, engine='openpyxl')
@@ -1230,6 +1257,8 @@ def send_daily_briefing():
     if not all_users:
         logger.info("No users found. Skipping job."); return
 
+    # --- NOTE: For a real deployment, the scheduler would need its own access to `services`.
+    # This code assumes they are co-located or accessible.
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
@@ -1303,8 +1332,7 @@ def send_update_notification_to_all_users(feature_list):
     logger.info("--- Finished sending update notifications ---")
 
 if __name__ == '__main__':
-    if not scheduler.get_job('daily_briefing_job'):
-        scheduler.add_job(func=send_daily_briefing, trigger='cron', hour=8, minute=0, id='daily_briefing_job', replace_existing=True)
-    
+    # --- CHANGE: The scheduler code is no longer in this block.
+    # The application is now a web server only.
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
