@@ -5,6 +5,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from datetime import timedelta
 import json
+import io
 
 # --- CONFIGURATION ---
 CLIENT_SECRETS_JSON = {
@@ -31,17 +32,13 @@ REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://your-app-url.com/g
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
+    # Use io.StringIO to treat the dictionary as a file-like object
+    temp_file = io.StringIO(json.dumps(CLIENT_SECRETS_JSON))
     flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_JSON, # This is not a file, it's a dict.
+        temp_file,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    # Correct way to instantiate from a dict
-    with open('temp_client_secret.json', 'w') as temp_file:
-        json.dump(CLIENT_SECRETS_JSON, temp_file)
-    flow = Flow.from_client_secrets_file('temp_client_secret.json', scopes=SCOPES, redirect_uri=REDIRECT_URI)
-    os.remove('temp_client_secret.json')
-
     return flow
 
 def create_google_calendar_event(credentials, task, run_time):
