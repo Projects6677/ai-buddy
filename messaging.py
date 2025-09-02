@@ -5,10 +5,11 @@ import time
 
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+API_VERSION = "v19.0"
 
 def send_message(to, message):
     """Sends a standard text message."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -28,7 +29,7 @@ def send_message(to, message):
 
 def send_template_message(to, template_name, components=[]):
     """Sends a pre-approved template message."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -55,7 +56,7 @@ def send_template_message(to, template_name, components=[]):
 
 def send_interactive_menu(to, name):
     """Sends the main interactive list menu."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -95,7 +96,7 @@ def send_interactive_menu(to, name):
 
 def send_reminders_list(to, reminders):
     """Sends an interactive list of reminders with a delete button for each."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -136,7 +137,7 @@ def send_reminders_list(to, reminders):
 
 def send_delete_confirmation(to, job_id, task_name):
     """Sends a yes/no confirmation message for deleting a reminder."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -177,7 +178,7 @@ def send_delete_confirmation(to, job_id, task_name):
 
 def send_meeting_proposal(to, proposed_time, session_id):
     """Sends a yes/no confirmation for a proposed meeting time."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -222,7 +223,7 @@ def send_meeting_proposal(to, proposed_time, session_id):
 
 def send_conversion_menu(to):
     """Sends an interactive LIST menu for file conversions."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -259,7 +260,7 @@ def send_conversion_menu(to):
 
 def send_google_drive_menu(to):
     """Sends the interactive Google Drive menu."""
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
