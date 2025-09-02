@@ -16,7 +16,7 @@ GROK_HEADERS = {
 
 
 # --- UNIFIED DAILY BRIEFING GENERATOR ---
-def generate_full_daily_briefing(user_name, festival_name, quote, author, history_events, weather_data,location):
+def generate_full_daily_briefing(user_name, festival_name, quote, author, history_events, weather_data, location):
     """
     Uses a single, powerful AI call to generate all components of the daily briefing,
     including a culturally-aware greeting.
@@ -52,7 +52,7 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
         -   Events: {json.dumps(history_texts)}
         -   Task: Pick the most interesting event from the list and write an engaging 2-3 sentence summary about it.
 
-   4.  **Weather Forecast:**
+    4.  **Weather Forecast:**
         -   Weather Data: {json.dumps(weather_data)}
         -   Task: Write a friendly, detailed weather forecast for {location}. Mention temperature, conditions, and a helpful suggestion.
 
