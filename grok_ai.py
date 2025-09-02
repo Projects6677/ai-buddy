@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime
 import logging
+import time # NEW: Import for exponential backoff
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,10 @@ GROK_HEADERS = {
     "Content-Type": "application/json"
 }
 
-def _grok_api_call(model, messages, temperature=0.7, timeout=30, response_format=None):
-    """A helper function to centralize all Grok API calls."""
+def _grok_api_call(model, messages, temperature=0.7, timeout=30, response_format=None, retries=3):
+    """
+    A helper function to centralize all Grok API calls with a retry mechanism.
+    """
     if not GROK_API_KEY:
         return None
     
@@ -30,14 +33,31 @@ def _grok_api_call(model, messages, temperature=0.7, timeout=30, response_format
     if response_format:
         payload["response_format"] = response_format
         
-    try:
-        response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=timeout)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP Error from Grok API: {e.response.text}")
-    except Exception as e:
-        logger.error(f"Grok API call error: {e}")
+    # --- CHANGE: Implement a retry loop with exponential backoff ---
+    for attempt in range(retries):
+        try:
+            response = requests.post(GROK_URL, headers=GROK_HEADERS, json=payload, timeout=timeout)
+            response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+            return response.json()["choices"]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            # Do not retry on client-side errors (4xx), as they won't resolve on their own
+            if 400 <= e.response.status_code < 500:
+                logger.error(f"Client-side HTTP Error from Grok API: {e.response.text}")
+                return None
+            logger.warning(f"Server-side HTTP Error on attempt {attempt+1}: {e.response.text}")
+        except requests.exceptions.RequestException as e:
+            # This handles network errors, timeouts, etc.
+            logger.warning(f"Grok API call failed on attempt {attempt+1}: {e}")
+        except Exception as e:
+            # Catch other unexpected errors
+            logger.error(f"Grok API call error: {e}")
+            return None # Do not retry on unexpected errors
+        
+        # Exponential backoff for retries
+        if attempt < retries - 1:
+            time.sleep(2 ** attempt)
+    
+    logger.error(f"Grok API call failed after {retries} attempts.")
     return None
 
 
@@ -90,8 +110,8 @@ def generate_full_daily_briefing(user_name, festival_name, quote, author, histor
     return {
         "greeting": f"☀️ Good Morning, {user_name}!",
         "quote_explanation": f"The quote '{quote}' by {author} suggests that our actions shape our character just as we choose our actions.",
-        "detailed_history": history_events[0].get('text', "No historical fact found for today."),
-        "detailed_weather": f"The weather in Vijayawada is currently {weather_data.get('main', {}).get('temp', 'N/A')}°C with {weather_data.get('weather', [{}])[0].get('description', 'N/A')}."
+        "detailed_history": history_events.get('text', "No historical fact found for today."),
+        "detailed_weather": f"The weather in Vijayawada is currently {weather_data.get('main', {}).get('temp', 'N/A')}°C with {weather_data.get('weather', [{}]).get('description', 'N/A')}."
     }
 
 
@@ -176,13 +196,13 @@ def generate_weather_summary(weather_data, location):
     # Provide a basic fallback if AI is not available
     if not GROK_API_KEY:
         temp = weather_data.get('main', {}).get('temp', 'N/A')
-        condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
+        condition = weather_data.get('weather', [{}]).get('description', 'N/A')
         return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
 
     prompt = f"""
     You are a friendly and helpful weather reporter. Based on the following raw weather data for {location}, write a detailed and engaging 2-3 sentence summary.
 
-    - Main condition: {weather_data.get('weather', [{}])[0].get('description', 'N/A')}
+    - Main condition: {weather_data.get('weather', [{}]).get('description', 'N/A')}
     - Temperature: {weather_data.get('main', {}).get('temp', 'N/A')}°C
     - Feels like: {weather_data.get('main', {}).get('feels_like', 'N/A')}°C
     - Humidity: {weather_data.get('main', {}).get('humidity', 'N/A')}%
@@ -197,7 +217,7 @@ def generate_weather_summary(weather_data, location):
         return summary
     
     temp = weather_data.get('main', {}).get('temp', 'N/A')
-    condition = weather_data.get('weather', [{}])[0].get('description', 'N/A')
+    condition = weather_data.get('weather', [{}]).get('description', 'N/A')
     return f"🌤️ The weather in {location} is currently {temp}°C with {condition}."
 
 
