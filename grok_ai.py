@@ -7,8 +7,8 @@ from datetime import datetime
 # --- Configuration ---
 GROK_API_KEY = os.environ.get("GROK_API_KEY")
 GROK_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROK_MODEL_FAST = "llama3-8b-8192"
-GROK_MODEL_SMART = "llama3-70b-8192"
+GROK_MODEL_FAST = "llama-3.1-8b-instant"
+GROK_MODEL_SMART = "llama-3.3-70b-versatile"
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
     "Content-Type": "application/json"
