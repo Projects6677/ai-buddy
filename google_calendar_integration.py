@@ -32,10 +32,9 @@ REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://your-app-url.com/g
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
-    # The dictionary itself is converted to a JSON string and passed directly.
-    client_config = json.dumps(CLIENT_SECRETS_JSON)
-    flow = Flow.from_client_secrets_string(
-        client_config,
+    # Use from_client_config to pass the dictionary directly
+    flow = Flow.from_client_config(
+        CLIENT_SECRETS_JSON,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
