@@ -10,13 +10,13 @@ import io
 # --- CONFIGURATION ---
 CLIENT_SECRETS_JSON = {
     "web": {
-        "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
-        "project_id": os.environ.get("GOOGLE_PROJECT_ID"),
+        "client_id": "316927646892-jdgnktunhf55reb5teb5nefcdo824bdl.apps.googleusercontent.com",
+        "project_id": "ai-b-466813",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
-        "redirect_uris": [os.environ.get("GOOGLE_REDIRECT_URI")]
+        "client_secret": "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",
+        "redirect_uris": ["https://ai-buddy-bx6w.onrender.com/google-auth/callback"]
     }
 }
 SCOPES = [
@@ -28,7 +28,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/youtube.readonly',
     'https://www.googleapis.com/auth/userinfo.email'
 ]
-REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://your-app-url.com/google-auth/callback")
+REDIRECT_URI = "https://ai-buddy-bx6w.onrender.com/google-auth/callback"
 
 def get_google_auth_flow():
     """Starts the Google OAuth 2.0 flow."""
