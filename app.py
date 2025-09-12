@@ -1191,20 +1191,16 @@ def send_daily_briefing():
         weather_data = get_raw_weather_data(city=user_location)
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-        greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-        quote_explanation = briefing_content.get("quote_explanation", "Have a wonderful day!").replace('\n', ' ')
-        detailed_history = briefing_content.get("detailed_history", "No historical fact found.").replace('\n', ' ')
-        detailed_weather = briefing_content.get("detailed_weather", "Weather data unavailable.").replace('\n', ' ')
-
+        
         components = [
-            {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
             {"type": "body", "parameters": [
-                {"type": "text", "text": f"{quote} - {author}"},
-                {"type": "text", "text": quote_explanation},
-                {"type": "text", "text": detailed_history},
-                {"type": "text", "text": detailed_weather}
+                {"type": "text", "text": briefing_content.get("quote", "N/A")},
+                {"type": "text", "text": briefing_content.get("author", "N/A")},
+                {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+                {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
             ]}
         ]
+        
         send_template_message(user_id, "daily_briefing_v3", components)
         time.sleep(1)
     print("--- Daily Briefing Job Finished ---")
@@ -1220,18 +1216,13 @@ def send_test_briefing(developer_number):
     weather_data = get_raw_weather_data(city=user_location)
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-    greeting = briefing_content.get("greeting", f"☀️ Good Morning, {user_name}!")
-    quote_explanation = briefing_content.get("quote_explanation", "Test explanation.").replace('\n', ' ')
-    detailed_history = briefing_content.get("detailed_history", "Test history.").replace('\n', ' ')
-    detailed_weather = briefing_content.get("detailed_weather", "Test weather.").replace('\n', ' ')
-
+    
     components = [
-        {"type": "header", "parameters": [{"type": "text", "text": greeting}]},
         {"type": "body", "parameters": [
-            {"type": "text", "text": f"{quote} - {author}"},
-            {"type": "text", "text": quote_explanation},
-            {"type": "text", "text": detailed_history},
-            {"type": "text", "text": detailed_weather}
+            {"type": "text", "text": briefing_content.get("quote", "N/A")},
+            {"type": "text", "text": briefing_content.get("author", "N/A")},
+            {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+            {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
         ]}
     ]
     send_template_message(developer_number, "daily_briefing_v3", components)
