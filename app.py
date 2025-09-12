@@ -1192,10 +1192,11 @@ def send_daily_briefing():
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
+        # New components list to match the updated template structure
         components = [
             {"type": "body", "parameters": [
-                {"type": "text", "text": briefing_content.get("quote", "N/A")},
-                {"type": "text", "text": briefing_content.get("author", "N/A")},
+                {"type": "text", "text": quote},
+                {"type": "text", "text": author},
                 {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
                 {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
             ]}
@@ -1217,10 +1218,11 @@ def send_test_briefing(developer_number):
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     
+    # New components list to match the updated template structure
     components = [
         {"type": "body", "parameters": [
-            {"type": "text", "text": briefing_content.get("quote", "N/A")},
-            {"type": "text", "text": briefing_content.get("author", "N/A")},
+            {"type": "text", "text": quote},
+            {"type": "text", "text": author},
             {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
             {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
         ]}
