@@ -1182,6 +1182,7 @@ def send_daily_briefing():
         print("No users found. Skipping job."); return
 
     festival = get_indian_festival_today()
+    # Correctly retrieve quote and author from the function call
     quote, author = get_daily_quote()
     history_events = get_on_this_day_in_history()
     
@@ -1190,6 +1191,7 @@ def send_daily_briefing():
         user_id, user_name, user_location = user["_id"], user.get("name", "there"), user.get("location", "Vijayawada")
         weather_data = get_raw_weather_data(city=user_location)
         
+        # This call still generates the AI-powered content
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
         # New components list to match the updated template structure
@@ -1218,7 +1220,6 @@ def send_test_briefing(developer_number):
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     
-    # New components list to match the updated template structure
     components = [
         {"type": "body", "parameters": [
             {"type": "text", "text": quote},
