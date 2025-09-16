@@ -1180,7 +1180,8 @@ def send_daily_briefing():
     print(f"--- Running Daily Briefing Job at {datetime.now()} ---")
     all_users = list(get_all_users_from_db())
     if not all_users:
-        print("No users found. Skipping job."); return
+        print("No users found. Skipping job.")
+        return
 
     festival = get_indian_festival_today()
     quote, author = get_daily_quote()
@@ -1188,49 +1189,76 @@ def send_daily_briefing():
     
     print(f"Found {len(all_users)} user(s) to send briefing to.")
     for user in all_users:
-        user_id, user_name, user_location = user["_id"], user.get("name", "there"), user.get("location", "Vijayawada")
+        user_id = user["_id"]
+        user_name = user.get("name", "there")
+        user_location = user.get("location", "Vijayawada")
+
         weather_data = get_raw_weather_data(city=user_location)
-        
-        briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-        
-        # --- FIX: Updated components list to include header and correctly separate dynamic body parameters. ---
+        briefing_content = generate_full_daily_briefing(
+            user_name, festival, quote, author, history_events, weather_data
+        )
+
         components = [
-            {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
-            {"type": "body", "parameters": [
-                {"type": "text", "text": f'"{quote}" - {author}\n\n{briefing_content.get("quote_explanation", "")}'},
-                {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
-                {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
-            ]}
+            {
+                "type": "header",
+                "parameters": [
+                    {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
+                ]
+            },
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": f'"{quote}" - {author}'},
+                    {"type": "text", "text": briefing_content.get("quote_explanation", "")},
+                    {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+                    {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
+                ]
+            }
         ]
-        # --------------------------------------------------------------------------------------------------
-        
+
         send_template_message(user_id, "daily_briefing_v3", components)
         time.sleep(1)
+    
     print("--- Daily Briefing Job Finished ---")
+
 
 def send_test_briefing(developer_number):
     print(f"--- Running Test Briefing for {developer_number} ---")
     user = get_user_from_db(developer_number)
     if not user:
-        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database."); return
+        send_message(developer_number, "Could not send test briefing. Your user profile was not found in the database.")
+        return
 
-    festival, (quote, author), history_events = get_indian_festival_today(), get_daily_quote(), get_on_this_day_in_history()
-    user_name, user_location = user.get("name", "Developer"), user.get("location", "Vijayawada")
+    festival = get_indian_festival_today()
+    quote, author = get_daily_quote()
+    history_events = get_on_this_day_in_history()
+    
+    user_name = user.get("name", "Developer")
+    user_location = user.get("location", "Vijayawada")
+
     weather_data = get_raw_weather_data(city=user_location)
+    briefing_content = generate_full_daily_briefing(
+        user_name, festival, quote, author, history_events, weather_data
+    )
 
-    briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
-    
-    # --- FIX: Updated components list to include header and correctly separate dynamic body parameters. ---
     components = [
-        {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
-        {"type": "body", "parameters": [
-            {"type": "text", "text": f'"{quote}" - {author}\n\n{briefing_content.get("quote_explanation", "")}'},
-            {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
-            {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
-        ]}
+        {
+            "type": "header",
+            "parameters": [
+                {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
+            ]
+        },
+        {
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": f'"{quote}" - {author}'},
+                {"type": "text", "text": briefing_content.get("quote_explanation", "")},
+                {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+                {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
+            ]
+        }
     ]
-    # --------------------------------------------------------------------------------------------------
-    
+
     send_template_message(developer_number, "daily_briefing_v3", components)
     print("--- Test Briefing Finished ---")
 
