@@ -1193,7 +1193,7 @@ def send_daily_briefing():
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
-        # --- FIX: Updated components list to include header. This resolves the 400 Bad Request error. ---
+        # --- FIX: Updated components list to include header and correctly separate dynamic body parameters. ---
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
             {"type": "body", "parameters": [
@@ -1220,7 +1220,7 @@ def send_test_briefing(developer_number):
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     
-    # --- FIX: Updated components list to include header. This resolves the 400 Bad Request error. ---
+    # --- FIX: Updated components list to include header and correctly separate dynamic body parameters. ---
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
         {"type": "body", "parameters": [
