@@ -27,7 +27,7 @@ def send_message(to, message):
         print(f"Failed to send message to {to}: {e}")
 
 
-def send_template_message(to, template_name, components=[]):
+def send_template_message(to, daily_briefing_v3, components=[]):
     """Sends a pre-approved template message."""
     url = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -35,7 +35,7 @@ def send_template_message(to, template_name, components=[]):
         "Content-Type": "application/json"
     }
     template_data = {
-        "name": template_name,
+        "name": daily_briefing_v3,
         "language": {"code": "en_US"}
     }
     if components:
@@ -50,7 +50,7 @@ def send_template_message(to, template_name, components=[]):
     try:
         response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
-        print(f"Template '{template_name}' sent to {to}. Status: {response.status_code}")
+        print(f"Template '{daily_briefing_v3}' sent to {to}. Status: {response.status_code}")
     except requests.exceptions.RequestException as e:
         print(f"Failed to send template message to {to}: {e.response.text if e.response else e}")
 
