@@ -1199,22 +1199,21 @@ def send_daily_briefing():
         )
 
         components = [
-            {
-                "type": "header",
-                "parameters": [
-                    {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
-                ]
-            },
-            {
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": f'"{quote}" - {author}'},
-                    {"type": "text", "text": briefing_content.get("quote_explanation", "")},
-                    {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
-                    {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
-                ]
-            }
+    {
+        "type": "header",
+        "parameters": [
+            {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
         ]
+    },
+    {
+        "type": "body",
+        "parameters": [
+            {"type": "text", "text": f'"{quote}" - {author}\n{briefing_content.get("quote_explanation", "")}'},
+            {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+            {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
+        ]
+    }
+]
 
         send_template_message(user_id, "daily_briefing_v3", components)
         time.sleep(1)
@@ -1242,22 +1241,21 @@ def send_test_briefing(developer_number):
     )
 
     components = [
-        {
-            "type": "header",
-            "parameters": [
-                {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
-            ]
-        },
-        {
-            "type": "body",
-            "parameters": [
-                {"type": "text", "text": f'"{quote}" - {author}'},
-                {"type": "text", "text": briefing_content.get("quote_explanation", "")},
-                {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
-                {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
-            ]
-        }
-    ]
+    {
+        "type": "header",
+        "parameters": [
+            {"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}
+        ]
+    },
+    {
+        "type": "body",
+        "parameters": [
+            {"type": "text", "text": f'"{quote}" - {author}\n{briefing_content.get("quote_explanation", "")}'},
+            {"type": "text", "text": briefing_content.get("detailed_history", "N/A")},
+            {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
+        ]
+    }
+]
 
     send_template_message(developer_number, "daily_briefing_v3", components)
     print("--- Test Briefing Finished ---")
