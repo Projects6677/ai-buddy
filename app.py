@@ -419,6 +419,33 @@ def handle_document_message(message, sender_number, session_data, message_type):
         if downloaded_path and os.path.exists(downloaded_path):
             os.remove(downloaded_path)
 
+# --- FIX: New function added to process meeting scheduling requests ---
+def process_meeting_scheduling(sender_number, session_data):
+    creds_list = [get_credentials_from_db(sender_number)]
+    attendees_emails = session_data["attendees_emails"]
+    for email in attendees_emails:
+        user_data = users_collection.find_one({"email": email})
+        if user_data:
+            attendee_creds = get_credentials_from_db(user_data["_id"])
+            if attendee_creds:
+                creds_list.append(attendee_creds)
+    
+    # Define a time window to search for a free slot
+    now = datetime.now(pytz.timezone('Asia/Kolkata'))
+    start_search = now + timedelta(days=1)
+    end_search = now + timedelta(days=7)
+
+    proposed_time = find_common_free_time(creds_list, session_data['duration_minutes'], start_search, end_search)
+    
+    if proposed_time:
+        send_meeting_proposal(sender_number, proposed_time, session_data['session_id'])
+        session_data["start_time"] = proposed_time.isoformat()
+        session_data["state"] = "awaiting_meeting_confirmation"
+        set_user_session(sender_number, session_data)
+    else:
+        send_message(sender_number, "❌ Sorry, I couldn't find a common free time for all attendees in the next 7 days. Please try again with a different timeframe or fewer attendees.")
+        set_user_session(sender_number, None)
+
 def handle_text_message(user_text, sender_number, session_data):
     user_text_lower = user_text.lower()
     menu_commands = ["start", "menu", "help", "options", "0"]
@@ -1193,7 +1220,6 @@ def send_daily_briefing():
         
         briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
         
-        # --- FIX: Updated components list to correctly match the template's 4 body parameters. ---
         components = [
             {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
             {"type": "body", "parameters": [
@@ -1203,7 +1229,6 @@ def send_daily_briefing():
                 {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
             ]}
         ]
-        # --------------------------------------------------------------------------------------------------
         
         send_template_message(user_id, "daily_briefing_v3", components)
         time.sleep(1)
@@ -1221,7 +1246,6 @@ def send_test_briefing(developer_number):
 
     briefing_content = generate_full_daily_briefing(user_name, festival, quote, author, history_events, weather_data)
     
-    # --- FIX: Updated components list to correctly match the template's 4 body parameters. ---
     components = [
         {"type": "header", "parameters": [{"type": "text", "text": briefing_content.get("greeting", "Good Morning!")}]},
         {"type": "body", "parameters": [
@@ -1231,7 +1255,6 @@ def send_test_briefing(developer_number):
             {"type": "text", "text": briefing_content.get("detailed_weather", "N/A")}
         ]}
     ]
-    # --------------------------------------------------------------------------------------------------
     
     send_template_message(developer_number, "daily_briefing_v3", components)
     print("--- Test Briefing Finished ---")
